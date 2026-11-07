@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.12.2'
+VERSION = 'v1.12.3'
 REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
 try:
     import updater
@@ -494,6 +494,31 @@ def read_matches():
     except Exception:
         pass
     return total, today
+
+
+_SESSION_BASE = None
+
+
+def session_mark():
+    """记下启动器启动那一刻的总局数; 「本次对局」= 当前总数 - 它"""
+    global _SESSION_BASE
+    try:
+        _SESSION_BASE = read_matches()[0]
+    except Exception:
+        _SESSION_BASE = None
+
+
+def session_rounds():
+    """本次启动器开着期间完成的局数: 关掉再开就从头算(总局数不受影响)"""
+    global _SESSION_BASE
+    try:
+        total, _ = read_matches()
+    except Exception:
+        return 0
+    if _SESSION_BASE is None:
+        session_mark()
+        return 0
+    return max(0, total - _SESSION_BASE)
 
 
 def read_status():
@@ -1002,8 +1027,11 @@ def render(proc):
     else:
         screen = '等待启动'
     kv([('词库', ('%d 个自定义词（按 9 增删）' % len(read_words())) if read_words() else '空（按 9 添加）', 'dim')])
+    _sess = session_rounds()
     kv([('画面', screen, 'white'),
-        ('对局', ('%d 局已完成 (今天 %d)' % (rounds, rounds_today)) if rounds else '0 局 (还没点过「返回大厅」)', 'dim')])
+        ('本次对局', ' %d 局' % _sess, 'dim')])
+    kv([('总局数', ('%d 局 (今天 %d)' % (rounds, rounds_today)) if rounds
+         else '0 局 (还没点过「返回大厅」)', 'dim')])
 
     _nm = my_name()
     _lax = lax_mode()
@@ -1546,6 +1574,7 @@ def update_menu():
 def main():
     # 这里不再改控制台缓冲区/窗口尺寸(以前那样会把窗口搞坏: 无法最小化/关闭/点击);
     # 开场画面会自己 ShowWindow 最大化一次, 播完立刻还原。
+    session_mark()      # 「本次对局」从 0 开始算(总局数照旧累计)
     ocr_info()          # 启动时问一次本机 OCR 语言
     try:
         log_ui('===== 启动器启动 %s =====' % VERSION)
