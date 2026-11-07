@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.12.6'
+VERSION = 'v1.12.7'
 REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
 try:
     import updater
@@ -1544,6 +1544,75 @@ FIDGET_BUILTIN = [
     ('B', '冲刺串', 'W+Shift 冲刺 5 秒 + 空格跳'),
     ('D', '互动串', 'F 切稿子 + 长按左键 10 秒 + 切回'),
 ]
+FIDGET_DETAIL = [
+    ('A', '综合串', [
+        '按住 W 往前走 3~4 秒，边走边平滑转视角 100~200°（只左右转，不低头）',
+        '80% 概率点鼠标左键 1~3 下（或长按左键 0.25~0.9 秒）',
+        '按一次「稿子」键换物品（键位见主菜单 [10] 键位设置）',
+        '50% 概率换个方向（W/A/D 随机）再走 1.5~2.2 秒，同时甩 120~240°',
+        '45% 概率再走 0.7~1.1 秒，小转 40~90°，然后跳一下',
+        '65% 概率再点一次左键',
+        '50% 概率再换一次物品',
+        '30% 概率做个表情，然后等 10 秒',
+        '整串一般 8~20 秒；被交互键打断会立刻收尾并松开所有按键',
+    ]),
+    ('B', '冲刺串', [
+        '按住 W + 奔跑键（默认左 Shift）冲刺 5 秒',
+        '冲的过程中按一次空格跳（W 和 Shift 一直按着不松）',
+        '继续按住再走 3 秒，顺便慢慢转 20~60°',
+        '最后才松开 W 和 Shift',
+        '整串约 8~9 秒',
+    ]),
+    ('D', '互动串', [
+        '按一次「稿子」键切出镐子',
+        '等 1 秒（等镐子真的切出来）',
+        '按住鼠标左键 10 秒（挖矿 / 挥击）',
+        '再按一次「稿子」键切回武器（被交互键打断也会切回）',
+        '整串约 11~12 秒',
+    ]),
+    ('E', '追踪队友', [
+        '读左下角队友名牌，先闭环瞄准把队友转到屏幕正中',
+        '移动前先按一下「稿子」键，然后按住 W + 奔跑 10~20 秒',
+        '起跑先连跳 3 下，之后每 1.8~3.2 秒点一下空格跳（一共约 5~6 跳）',
+        '期间持续 OCR 修正朝向（只动鼠标，W 一直按着）',
+        '固定开启，不能改、不能删',
+    ]),
+]
+
+
+def fidget_detail(k):
+    """[17] -> [7] 查看某一串内置动作的具体步骤"""
+    name = ''
+    steps = []
+    for key, nm, lines in FIDGET_DETAIL:
+        if key == k:
+            name, steps = nm, lines
+            break
+    if not steps:
+        _last_action[0] = '没有这个内置动作: %s' % k
+        time.sleep(0.8)
+        return
+    clear()
+    hide_cursor(True)
+    tag = '固定开启' if k == 'E' else ('开' if fidget_switch(FIDGET_SWITCH_KEYS[k]) else '关')
+    title = '内置动作 %s %s 的详细步骤' % (k, name)
+    title += ' ' * max(0, 56 - sum(2 if ord(ch) > 127 else 1 for ch in title))
+    print()
+    print(c('  ┌──────────────────────────────────────────────────────────┐', 'cyan'))
+    print(c('  │ ' + title + ' │', 'cyan'))
+    print(c('  └──────────────────────────────────────────────────────────┘', 'cyan'))
+    print('  ' + c('当前状态：', 'white') + c(tag, 'green' if tag != '关' else 'dim'))
+    print()
+    for i, s in enumerate(steps, 1):
+        print('   ' + c('%d.' % i, 'cyan') + ' ' + s)
+    print()
+    print(c('  抽中概率：A 20% · B 8% · D 18% · E 54%（关掉的动作不参与抽取）', 'dim'))
+    if k != 'E':
+        print(c('  用 [1] 可以开关这一串；它是内置动作，不能改里面每一步。', 'dim'))
+    print()
+    _ask('  按回车返回挂机机制：')
+
+
 FIDGET_SWITCH_KEYS = {'A': 'fidget_a', 'B': 'fidget_b', 'D': 'fidget_d'}
 FIDGET_MOUSE = ('左键', '左', '右键', '右', 'left', 'right', 'lmb', 'rmb')
 
@@ -1662,6 +1731,11 @@ def fidget_menu():
         print(c('  │  追踪队友是内置核心动作，不能改、不能删                    │', 'cyan'))
         print(c('  └──────────────────────────────────────────────────────────┘', 'cyan'))
         print()
+        if _last_action[0]:
+            # v1.12.7: 子菜单里也要能看到「上次操作/出错提示」, 以前只有回主菜单才显示
+            print('  ' + c(fit(_last_action[0], 54), 'yellow'))
+            print()
+            _last_action[0] = ''
         print('  ' + c('内置动作（局内每隔约 15 秒轮着做一条）', 'white'))
         for k, name, desc in FIDGET_BUILTIN:
             on = fidget_switch(FIDGET_SWITCH_KEYS[k])
@@ -1669,6 +1743,7 @@ def fidget_menu():
                   + c('开 ' if on else '关 ', 'green' if on else 'dim') + c(desc, 'dim'))
         print('   ' + c('E', 'cyan') + ' ' + pad('追踪队友', 8)
               + c('固定开启', 'yellow') + c('自动朝队友走（内置核心，不可修改）', 'dim'))
+        print(c('   （想看 A/B/D 里具体做哪些动作？按 [7]，或直接输入字母 A / B / D / E）', 'dim'))
         print()
         print('  ' + c('自定义动作（各自按自己的间隔执行，改完下一轮就生效）', 'white'))
         if rows:
@@ -1683,13 +1758,25 @@ def fidget_menu():
               + c('[4]', 'cyan') + ' 删除   '
               + c('[5]', 'cyan') + ' 恢复默认   '
               + c('[6]', 'cyan') + ' 用记事本打开   '
+              + c('[7]', 'cyan') + ' 看内置动作详情   '
               + c('[0]', 'cyan') + ' 返回')
         print()
-        ans = _ask('  请输入序号后按回车（0~6）：').strip()
+        ans = _ask('  请输入序号后按回车（0~7）：').strip()
         if ans in ('0', ''):
             hide_cursor(False)
             _last_action[0] = '已返回主菜单（挂机机制：%s）' % fidget_label()
             return
+        if len(ans) == 1 and ans.upper() in ('A', 'B', 'D', 'E'):
+            fidget_detail(ans.upper())
+            continue
+        if ans == '7':
+            k = _ask('  想看哪个内置动作？输入 A / B / D / E（回车=取消）：').strip().upper()
+            if k not in ('A', 'B', 'D', 'E'):
+                _last_action[0] = '只支持 A / B / D / E'
+                time.sleep(0.8)
+                continue
+            fidget_detail(k)
+            continue
         if ans == '1':
             k = _ask('  要开关哪个内置动作？输入 A / B / D（回车=取消）：').strip().upper()
             if k not in FIDGET_SWITCH_KEYS:
