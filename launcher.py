@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.12.5'
+VERSION = 'v1.12.6'
 REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
 try:
     import updater
@@ -194,7 +194,7 @@ def save_lax(on):
 
 
 # ---------------------------------------------------------------- 按键绑定
-DEFAULT_KEYS = [('跳跃', '0x20'), ('奔跑', '0xA0'), ('稿子', '0x31'), ('动作', '0x42'), ('交互', '0x45'), ('召回小队', '0x47')]
+DEFAULT_KEYS = [('跳跃', '0x20'), ('奔跑', '0xA0'), ('稿子', '0x31'), ('动作', '0x42'), ('交互', '0x45')]
 
 VK_FRIENDLY = {
     0x20: '空格', 0x0D: '回车', 0x1B: 'Esc', 0x09: 'Tab', 0x08: '退格',
@@ -271,6 +271,15 @@ def set_conf_one(key, value):
         return False
     conf[key.lower()] = value
     return write_conf(conf)
+
+
+def save_conf_or_report(key, value, ok_msg, bad_msg=None):
+    """v1.12.6: 写一项设置并如实反馈结果(以前忽略返回值, 写失败也说「已保存」)"""
+    if set_conf_one(key, value):
+        _last_action[0] = ok_msg
+        return True
+    _last_action[0] = bad_msg or ('写 设置.txt 失败(文件被占用?)：%s' % key)
+    return False
 
 
 def parse_key_text(txt):
@@ -359,11 +368,11 @@ def squad_mode_menu():
     print('  [0] 返回')
     a = _ask('  选择: ')
     if a == '1':
-        conf = read_conf(); conf['squad_mode'] = 'alive'; write_conf(conf)
-        _last_action[0] = '退出策略 = 全程（局内只剩 2 人也会退出重排）'
+        save_conf_or_report('squad_mode', 'alive',
+                            '退出策略 = 全程（局内只剩 2 人也会退出重排）')
     elif a == '2':
-        conf = read_conf(); conf['squad_mode'] = 'start'; write_conf(conf)
-        _last_action[0] = '退出策略 = 只在开局前（局内不会主动退出）'
+        save_conf_or_report('squad_mode', 'start',
+                            '退出策略 = 只在开局前（局内不会主动退出）')
     else:
         _last_action[0] = '没改'
 
@@ -382,17 +391,15 @@ def after_match_menu():
     print('  [0] 返回')
     a = _ask('  选择: ')
     if a == '1':
-        conf = read_conf(); conf['after_match'] = 'again'; write_conf(conf)
-        _last_action[0] = '结算后行为 = 再玩一局（点「再玩一次」）'
+        save_conf_or_report('after_match', 'again', '结算后行为 = 再玩一局（点「再玩一次」）')
     elif a == '2':
-        conf = read_conf(); conf['after_match'] = 'lobby'; write_conf(conf)
-        _last_action[0] = '结算后行为 = 返回大厅'
+        save_conf_or_report('after_match', 'lobby', '结算后行为 = 返回大厅')
     else:
         _last_action[0] = '没改'
 
 
 def keys_menu():
-    """[10] 按键绑定: 单独设置 跳跃/奔跑/稿子/动作/交互/召回小队 对应键盘哪个键"""
+    """[10] 按键绑定: 单独设置 跳跃/奔跑/稿子/动作/交互 对应键盘哪个键"""
     while True:
         clear()
         print()
@@ -405,7 +412,7 @@ def keys_menu():
             print('  ' + c('[%d]' % i, 'cyan') + ' ' + pad(name, 10)
                   + c(pad(key_label(vk), 10), 'yellow') + c(vk, 'dim'))
         print()
-        print(c('  用在：奔跑=冲刺 动作=B跳舞 交互=E搜索/开箱/救援 召回小队=G重启车；跳跃/稿子=备用', 'dim'))
+        print(c('  用在：奔跑=冲刺 动作=B跳舞 交互=E搜索/开箱/救援/召回；跳跃/稿子=备用', 'dim'))
         print(c('  [0] 返回      [t] 测试「跳跃」能不能按出来', 'dim'))
         print()
         ans = _ask('  输入序号改键，0 返回：').strip()
@@ -1386,15 +1393,27 @@ def read_actions():
     return out
 
 
-def write_actions(rows):
+def _write_rows_atomic(path, header, rows):
+    """v1.12.6: 先写 .tmp 再 os.replace —— 写一半崩溃也不会留下半截文件"""
+    tmp = path + '.tmp'
     try:
-        with io.open(ACTIONS_FILE, 'w', encoding='utf-8', newline='') as f:
-            f.write('\r\n'.join(ACTION_HEADER) + '\r\n')
+        with io.open(tmp, 'w', encoding='utf-8', newline='') as f:
+            f.write('\r\n'.join(header) + '\r\n')
             for ln in rows:
                 f.write(ln + '\r\n')
+        os.replace(tmp, path)
         return True
     except Exception:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
         return False
+
+
+def write_actions(rows):
+    return _write_rows_atomic(ACTIONS_FILE, ACTION_HEADER, rows)
 
 
 def action_ok(txt):
@@ -1433,7 +1452,7 @@ def actions_menu():
             for i, r in enumerate(rows, 1):
                 print('  ' + c('%d.' % i, 'cyan') + '  ' + r)
         else:
-            print(c('  （没自定义规则，用内置默认）', 'dim'))
+            print(c('  （没有自定义规则；内置 7 词始终生效）', 'dim'))
             print(c('  默认：打开/搜索/上升/救援/召回/拾取/互动 → 交互键（默认 E）', 'dim'))
         print()
         print('  ' + c('[1]', 'cyan') + ' 添加/修改一条规则   '
@@ -1462,7 +1481,9 @@ def actions_menu():
                 continue
             new_words = [x.strip() for x in w.replace('，', ',').replace('、', ',')
                          .replace('/', ',').split(',') if x.strip()]
-            rows = [r for r in rows if not (set(_action_words(r)) & set(new_words))]
+            # v1.12.6: 只有字眼完全一样才替换; 以前有一个词重叠就整条删掉,
+            # 已有「打开/搜索」时再加「打开」会把「搜索」一起弄丢
+            rows = [r for r in rows if set(_action_words(r)) != set(new_words)]
             rows.append('%s => %s' % ('/'.join(new_words), a))
             if not write_actions(rows):
                 _last_action[0] = '写入 识别动作.txt 失败(文件被占用?)'
@@ -1491,7 +1512,8 @@ def actions_menu():
             try:
                 if os.path.exists(ACTIONS_FILE):
                     os.remove(ACTIONS_FILE)
-                _last_action[0] = '已恢复默认：打开/搜索/上升/救援/召回/拾取/互动 → 交互键'
+                _last_action[0] = ('已恢复默认：删掉自定义规则'
+                                   '（内置 打开/搜索/上升/救援/召回/拾取/互动 → 交互键 始终生效）')
             except Exception as e:
                 _last_action[0] = '删除 识别动作.txt 失败: %r' % (e,)
             time.sleep(0.6)
@@ -1546,14 +1568,7 @@ def read_fidget():
 
 
 def write_fidget(rows):
-    try:
-        with io.open(FIDGET_FILE, 'w', encoding='utf-8', newline='') as f:
-            f.write('\r\n'.join(FIDGET_HEADER) + '\r\n')
-            for ln in rows:
-                f.write(ln + '\r\n')
-        return True
-    except Exception:
-        return False
+    return _write_rows_atomic(FIDGET_FILE, FIDGET_HEADER, rows)
 
 
 def _fnum_ok(txt, lo, hi):
@@ -1608,10 +1623,31 @@ def fidget_ok(spec):
     return False, '动作开头只支持: 按 / 长按 / 连点 / 点击 / 长按左键 / 组合键'
 
 
+def _fidget_line_ok(line):
+    """v1.12.6: 这一行是否真能被机器人执行(名称 => 动作 @ 间隔)"""
+    if '=>' not in line:
+        return False
+    name, rest = line.split('=>', 1)
+    if not name.strip() or '@' not in rest:
+        return False
+    spec, iv = rest.rsplit('@', 1)
+    ok, _why = fidget_ok(spec)
+    if not ok:
+        return False
+    try:
+        v = float(iv.strip())
+    except Exception:
+        return False
+    return 2 <= v <= 3600
+
+
 def fidget_label():
     on = [k for k in ('A', 'B', 'D') if fidget_switch(FIDGET_SWITCH_KEYS[k])]
-    n = len(read_fidget())
-    return '内置%s·追踪队友·自定义%d条' % (''.join(on) if on else '全关', n)
+    rows = read_fidget()
+    n = sum(1 for r in rows if _fidget_line_ok(r))
+    bad = len(rows) - n
+    builtin = ''.join(on) if on else 'A/B/D全关'
+    return '内置%s·追踪队友·自定义%d条%s' % (builtin, n, '·坏行%d' % bad if bad else '')
 
 
 def fidget_menu():
@@ -1662,9 +1698,10 @@ def fidget_menu():
                 continue
             key = FIDGET_SWITCH_KEYS[k]
             now_on = fidget_switch(key)
-            set_conf_one(key, '0' if now_on else '1')
-            _last_action[0] = '内置动作 %s 已%s（下一串动作起生效）' % (k, '关掉' if now_on else '打开')
-            time.sleep(0.6)
+            save_conf_or_report(key, '0' if now_on else '1',
+                                '内置动作 %s 已%s（下一串动作起生效）'
+                                % (k, '关掉' if now_on else '打开'))
+            time.sleep(0.6 if not now_on else 1.0)
             continue
         if ans in ('2', '3'):
             idx = None
@@ -1734,13 +1771,19 @@ def fidget_menu():
             _last_action[0] = '已删除「%s」' % gone
             time.sleep(0.6)
         elif ans == '5':
+            # v1.12.6: 恢复默认连内置开关一起复位(以前只删文件, 提示却说「A/B/D 全开」)
             try:
                 if os.path.exists(FIDGET_FILE):
                     os.remove(FIDGET_FILE)
-                _last_action[0] = '已恢复默认：只有内置动作（A/B/D 全开 + 追踪队友）'
+                failed = [k for k in FIDGET_SWITCH_KEYS
+                          if not set_conf_one(FIDGET_SWITCH_KEYS[k], '1')]
+                if failed:
+                    _last_action[0] = '已清空自定义动作，但内置开关没复位成功: %s' % '/'.join(failed)
+                else:
+                    _last_action[0] = '已恢复默认：自定义动作清空，内置 A/B/D 全开 + 追踪队友'
             except Exception as e:
                 _last_action[0] = '删除 挂机动作.txt 失败: %r' % (e,)
-            time.sleep(0.6)
+            time.sleep(0.9)
         elif ans == '6':
             try:
                 if not os.path.exists(FIDGET_FILE):

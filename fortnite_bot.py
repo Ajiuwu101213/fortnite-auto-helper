@@ -449,13 +449,11 @@ VK_JUMP = VK_SPACE            # 跳跃
 VK_SPRINT = VK_LSHIFT         # 奔跑
 VK_PICKAXE = 0x31             # 稿子(采集工具) —— 堡垒之夜默认 1
 VK_EMOTE = 0x42               # 动作(表情/跳舞) —— 堡垒之夜默认 B
-VK_INTERACT = 0x45            # 交互(搜索/开箱/拾取/救援) —— v1.12.4 起默认 E
-VK_RECALL = 0x47              # 召回小队(重启车) —— 用户键位是 G
-KEY_BINDINGS = {              # 中文名 -> 默认 VK (下蹲已按用户要求彻底取消)
+VK_INTERACT = 0x45            # 交互(搜索/开箱/拾取/救援/召回) —— v1.12.4 起默认 E
+KEY_BINDINGS = {              # 中文名 -> 默认 VK (下蹲已取消; v1.12.6 去掉没用的召回键)
     '跳跃': VK_JUMP, '奔跑': VK_SPRINT, '稿子': VK_PICKAXE,
-    '动作': VK_EMOTE, '交互': VK_INTERACT, '召回小队': VK_RECALL,
+    '动作': VK_EMOTE, '交互': VK_INTERACT,
 }
-KEY_VK_NAMES = {v: k for k, v in KEY_BINDINGS.items()}
 
 
 KEY_TEXT_MAP = {
@@ -558,7 +556,7 @@ def load_key_bindings():
     # 但老版本 设置.txt 里可能还留着 key_下蹲, 这里不能因为缺键就 KeyError 崩掉)
     for _name, _gname in (('下蹲', 'VK_CROUCH'), ('跳跃', 'VK_JUMP'), ('奔跑', 'VK_SPRINT'),
                           ('稿子', 'VK_PICKAXE'), ('动作', 'VK_EMOTE'),
-                          ('交互', 'VK_INTERACT'), ('召回小队', 'VK_RECALL')):
+                          ('交互', 'VK_INTERACT')):
         if _name in KEY_BINDINGS:
             globals()[_gname] = KEY_BINDINGS[_name]
     return dict(KEY_BINDINGS)
@@ -1059,6 +1057,7 @@ INTERACT_WORDS = ('打开', '搜索', '上升', '救援', '召回', '拾取', '�
 LONG_ACTION_WORDS = ('救援', '召回')
 ACTION_RETRY_SEC = 5.0          # 普通关键词: 两次按键之间至少隔几秒
 ACTION_HOLD_SEC = 15.0          # 救援/召回: 按完停多少秒
+ACTION_PRESS_HOLD = 0.8         # v1.12.6: 救援/召回是「按住」型提示, 交互键按住多少秒
 ACTION_RULES_PATH = data_file('识别动作.txt')   # 用户自定义: 字眼 => 动作
 ACTION_RULES_HEADER = [
     '# 识别动作: 一行一条, 格式  字眼 => 动作',
@@ -1103,7 +1102,7 @@ def _parse_action_spec(spec):
 
 
 def load_action_rules():
-    """读 识别动作.txt(改了立刻生效, 按修改时间缓存); 没有就返回内置默认规则。
+    """读 识别动作.txt(改了立刻生效, 按修改时间缓存); 结果里始终带内置默认规则。
 
     返回 [{'words': (...), 'kind': 'interact'|'key'|'combo'|'click',
            'vk': int|None, 'vks': (..), 'label': str, 'src': '文件'|'默认'}]
@@ -1143,9 +1142,11 @@ def load_action_rules():
         except Exception as e:
             log('WARN 读 识别动作.txt 失败: %s' % e)
             rules = []
-    if not rules:
-        rules = [{'words': INTERACT_WORDS, 'kind': 'interact', 'vk': None, 'vks': (),
-                  'label': '交互键', 'src': '默认'}]
+    # v1.12.6: 自定义规则和内置默认合并(自定义排前面, 先命中先执行)。
+    # 以前是「文件里有规则就把内置 7 词整个丢掉」: 只加一条自定义规则,
+    # 打开/搜索/上升/救援/召回/拾取/互动 就全部失效, 救援/召回的 15 秒静默也不再触发。
+    rules.append({'words': INTERACT_WORDS, 'kind': 'interact', 'vk': None, 'vks': (),
+                  'label': '交互键', 'src': '默认'})
     _ACTION_RULES_CACHE['mtime'], _ACTION_RULES_CACHE['rules'] = mt, rules
     return rules
 
@@ -1859,8 +1860,6 @@ class Bot:
         self.react_min = self.load_click_cd('click_react_min', CLICK_REACT_MIN)
         self.react_max = self.load_click_cd('click_react_max', CLICK_REACT_MAX)            # 连续几轮判定「队伍人数不足」
         self.leave_done_match = False # 本局是否已经因为人数不足退过一次
-        self.recall_cd = 0.0          # 「召回小队」键冷却(旧路径, v1.12.4 起由交互规则接管)
-        self.recall_count = 0
         self.action_rules = load_action_rules()   # v1.12.4: 关键词 -> 动作(可自定义)
         self.action_cd = {}                        # 每条规则自己的冷却
         self.action_count = 0
@@ -2037,7 +2036,7 @@ class Bot:
         return True
 
     def run_fidget_series(self):
-        """一串连续动作, 五种轮着来:
+        """一串连续动作, 四种轮着来(A/B/D 可在 [17] 挂机机制 里关掉):
            A 综合串(少移动): 走+左右看 -> 左键 -> 换物品 -> (跳跃) -> (表情)
            B 冲刺串: W+Shift 5s -> 空格跳 -> W+Shift 3s
            D 互动串: F -> 等 1 秒 -> 长按左键 10 秒
@@ -2095,36 +2094,35 @@ class Bot:
                         self._nap(FIDGET_EMOTE_WAIT)
             elif kind == 'D':
                 # 切稿子(F) -> 等 1 秒 -> 长按左键 10 秒(挖矿/挥击) -> 再按一次 F 切回武器
-                # 注意: 这里刻意在收尾把 F 再按一次, 否则下一串「朝队友冲刺」会拎着稿子跑
+                # v1.12.6: 切回武器放进 finally —— 被交互键打断时也要按回 F,
+                # 否则下一串会拎着镐子跑(以前的 except 直接跳过了这一下)
                 if not self.stop_requested and self._nap(0.2):
-                    if press_scan(key_vk('稿子')):
+                    switched = press_scan(key_vk('稿子'))
+                    if switched:
                         parts.append('切稿子')
-                    self._nap(1.0)
-                    if not self.stop_requested:
-                        user32.mouse_event(0x0002, 0, 0, 0, None)
-                        try:
-                            log('    FIDGET 长按左键 10 秒(挖矿)')
-                            if self._nap(10.0):
-                                parts.append('长按左键10s')
-                        finally:
-                            user32.mouse_event(0x0004, 0, 0, 0, None)
-                        if not self.stop_requested and press_scan(key_vk('稿子')):
+                    try:
+                        self._nap(1.0)
+                        if not self.stop_requested:
+                            user32.mouse_event(0x0002, 0, 0, 0, None)
+                            try:
+                                log('    FIDGET 长按左键 10 秒(挖矿)')
+                                if self._nap(10.0):
+                                    parts.append('长按左键10s')
+                            finally:
+                                user32.mouse_event(0x0004, 0, 0, 0, None)
+                    finally:
+                        if switched and not self.stop_requested and press_scan(key_vk('稿子')):
                             parts.append('切回武器')
             elif kind == 'E':
                 got = self.follow_teammate_sustained()
                 if got and got != '-':
                     parts.append('朝队友: ' + got)
             elif kind == 'B':
-                parts.append('冲刺: W+Shift 5s')
+                # v1.12.6: 只有真做成了才记日志(以前先 append, 没做也写「冲刺 5s」)
                 if self._hold_move_jump(key_vk('奔跑'), 5.0, 3.0, pan_deg=random.uniform(20.0, 60.0)):
+                    parts.append('冲刺: W+Shift 5s')
                     parts.append('空格跳')
                     parts.append('W+Shift 3s')
-            else:
-                # 不再使用下蹲(Ctrl): 用户要求彻底取消蹲; 这里改成冲刺+左右小走
-                parts.append('冲刺+横移')
-                if self._walk_look(random.randint(1500, 2500),
-                                   random.choice((VK_A, VK_D)), pan_deg=random.uniform(30.0, 80.0)):
-                    parts.append('横移')
         except _FidgetInterrupt:
             parts.append('被交互键打断')
         except Exception as e:
@@ -2132,7 +2130,8 @@ class Bot:
         finally:
             self.fidget_scan = False
             self._interrupt_fidget = False
-            self.next_fidget = t_start + FIDGET_INTERVAL
+            # v1.12.6: 至少留 2 秒喘息; 长串(表情等 10 秒)做完不会立刻接下一串
+            self.next_fidget = max(t_start + FIDGET_INTERVAL, time.time() + 2.0)
         return '%s系列#%d(%s, %.1fs): %s' % ('[DRY] ' if self.dry else '', n, kind,
                                              time.time() - t_start,
                                              '+'.join(parts) if parts else '-')
@@ -3267,14 +3266,24 @@ class Bot:
         return out
 
     def _match_total(self):
+        """总局数: 取两个计数文件里行数较多的那个(v1.12.6)
+
+        以前是「两个文件行数之和 ÷ 2」, 只要有一边缺文件/写失败,
+        日志里的累计局数就直接少一半(5 局显示成 2 局)。
+        两个文件正常情况下内容一致(每次记两处), 取较大值就是真实局数;
+        某一边写失败时也不会被拉低。
+        """
         try:
-            n = 0
+            counts = []
             for p in self._stats_files():
-                if os.path.isfile(p):
-                    for ln in io.open(p, encoding='utf-8-sig', errors='ignore'):
-                        if ln.strip():
-                            n += 1
-            return max(0, n // 2) if len(self._stats_files()) > 1 else n
+                if not os.path.isfile(p):
+                    continue
+                n = 0
+                for ln in io.open(p, encoding='utf-8-sig', errors='ignore'):
+                    if ln.strip():
+                        n += 1
+                counts.append(n)
+            return max(counts) if counts else 0
         except Exception:
             return 0
 
@@ -3294,27 +3303,6 @@ class Bot:
         except Exception:
             pass
 
-    def maybe_recall(self, lines, state):
-        """画面里出现「召回小队」就按一次召回键(默认 G)。仅对局内, 带 2 秒冷却。"""
-        if state != 'INGAME':
-            return None
-        hit = find_line(lines, '召回小队', '召回')
-        if not hit or '召回' not in hit['norm']:
-            return None
-        now = time.time()
-        if now < self.recall_cd:
-            return None
-        self.recall_cd = now + 2.0
-        vk = key_vk('召回小队')
-        if self.dry:
-            return '[DRY] 召回小队@%d,%d -> 按 %s' % (
-                hit['x'] + hit['w'] // 2, hit['y'] + hit['h'] // 2, vk_label(vk))
-        if not self.game_is_foreground():
-            return None
-        press_scan(vk)
-        self.recall_count += 1
-        return '召回小队 画面出现「召回小队」→ 按 %s (第%d次)' % (vk_label(vk), self.recall_count)
-
     def maybe_interact(self, lines, state):
         """旧路径(兼容保留): 画面里出现交互提示就按一次交互键。v1.12.4 起由 check_actions 接管。"""
         return self.check_actions(lines, state)
@@ -3333,6 +3321,24 @@ class Bot:
             return True
         return any(k in nm for k in self.ACTION_SKIP_WORDS)
 
+    def _find_action_line(self, lines, words):
+        """v1.12.6: 逐行找第一个「含关键词且不是任务条」的行。
+
+        以前用 find_line 只取 OCR 顺序第一行: 那一行如果正好是左上角的长句
+        (例如「620/1000 打开宝箱」进度), 整条规则就被 continue 掉,
+        屏幕下方真正的提示(例如「召回货车」)反而被漏掉。
+        """
+        for l in lines:
+            nm = l.get('norm') or ''
+            if not nm:
+                continue
+            if not any(w in nm for w in words):
+                continue
+            if self._action_taskbar(l):
+                continue
+            return l
+        return None
+
     def _send_combo(self, vks):
         """同时按住一组键再依次松开(组合键)"""
         sent = []
@@ -3346,26 +3352,33 @@ class Bot:
                 key_up_scan(vk)
         return bool(sent)
 
-    def _do_action(self, rule, hit):
+    def _do_action(self, rule, hit, hold=0.0):
         kind = rule['kind']
         if kind == 'click':
             cx, cy = center(hit)
             click(cx, cy)
             return True
-        if kind == 'key':
-            return press_scan(rule['vk'])
         if kind == 'combo':
             return self._send_combo(rule['vks'])
-        return press_scan(key_vk('交互'))
+        vk = rule['vk'] if kind == 'key' else key_vk('交互')
+        if hold > 0:
+            # v1.12.6: 救援/召回这类提示要按住才生效, 轻点一下游戏不认
+            if not key_down_scan(vk):
+                return False
+            try:
+                return self._nap(hold)
+            finally:
+                key_up_scan(vk)
+        return press_scan(vk)
 
     def check_actions(self, lines, state):
-        """v1.12.4: 交互关键词优先。
+        """v1.12.4: 交互关键词优先(v1.12.6 修了两处逻辑).
 
         画面出现「打开/搜索/上升/救援/召回(内置)」或 识别动作.txt 里的自定义字眼时:
           立刻按一次(默认交互键 E / 点击 / 自定义按键 / 组合键), 优先级高于防挂机;
           按完等 5 秒再识别, 还在就再按一次;
-          「救援/召回」按完停 15 秒(期间反挂机和其他动作都让路)。
-        仅对局内生效; 左上角任务条/长句说明文字会被排除。
+          「救援/召回」是按住型提示 -> 按住 0.8 秒, 然后停 15 秒(期间反挂机让路)。
+        仅对局内生效; 左上角任务条/长句说明文字会被排除(逐行找, 长句不会挡住真提示)。
         """
         if state != 'INGAME':
             return None
@@ -3376,8 +3389,8 @@ class Bot:
             pass
         now = time.time()
         for r in self.action_rules:
-            hit = find_line(lines, *r['words'])
-            if not hit or self._action_taskbar(hit):
+            hit = self._find_action_line(lines, r['words'])
+            if not hit:
                 continue
             nm = hit.get('norm') or ''
             long_kind = any(w in nm for w in LONG_ACTION_WORDS)
@@ -3387,17 +3400,19 @@ class Bot:
                 continue
             if now < self.action_hold_until:        # 救援/召回后的 15 秒静默
                 return None
+            # v1.12.6: 先确认游戏在前台再记冷却 —— 没按出去的那次不该白等 5 秒
+            if not self.dry and not self.game_is_foreground():
+                return None
             self.action_cd[key] = now + wait
             if long_kind:
                 self.action_hold_until = now + ACTION_HOLD_SEC
             word = next((w for w in r['words'] if w in nm), r['words'][0])
             cx, cy = center(hit)
-            extra = ' (救援/召回, 停 %.0f 秒)' % ACTION_HOLD_SEC if long_kind else ''
+            extra = (' (救援/召回, 按住 %.1f 秒, 停 %.0f 秒)'
+                     % (ACTION_PRESS_HOLD, ACTION_HOLD_SEC)) if long_kind else ''
             if self.dry:
                 return '[DRY] 交互 「%s」@%d,%d -> %s%s' % (word, cx, cy, r['label'], extra)
-            if not self.game_is_foreground():
-                return None
-            self._do_action(r, hit)
+            self._do_action(r, hit, hold=ACTION_PRESS_HOLD if long_kind else 0.0)
             self.action_count += 1
             return '交互 画面出现「%s」→ %s (第%d次)%s' % (
                 word, r['label'], self.action_count, extra)
@@ -3478,10 +3493,9 @@ class Bot:
         if r['hold'] > 0:
             user32.mouse_event(down, 0, 0, 0, None)
             try:
-                self._nap(r['hold'])
+                return self._nap(r['hold'])      # v1.12.6: 按 F9 停止时返回 False
             finally:
                 user32.mouse_event(up, 0, 0, 0, None)
-            return True
         for i in range(max(1, r['count'])):
             if self.stop_requested:
                 return False
@@ -3502,10 +3516,9 @@ class Bot:
         if r['hold'] > 0:
             key_down_scan(vk)
             try:
-                self._nap(r['hold'])
+                return self._nap(r['hold'])      # v1.12.6: 按 F9 停止时返回 False
             finally:
                 key_up_scan(vk)
-            return True
         for i in range(max(1, r['count'])):
             if self.stop_requested:
                 return False
@@ -3526,8 +3539,11 @@ class Bot:
         if not ok:
             return None
         now = time.time()
+        # v1.12.6: 冷却键不再带 interval(改间隔不该立刻执行一次); 顺手清掉已删动作的旧计时
+        keep = {(r['name'], r['label']) for r in rules}
+        self.custom_cd = {k: v for k, v in self.custom_cd.items() if k in keep}
         for r in rules:
-            key = (r['name'], r['label'], r['interval'])
+            key = (r['name'], r['label'])
             if now < self.custom_cd.get(key, 0.0):
                 continue
             self.custom_cd[key] = now + r['interval']
@@ -3537,8 +3553,9 @@ class Bot:
                 return None
             self.fidget_scan = True        # 做自定义动作时也能被交互关键词打断
             self._interrupt_fidget = False
+            done = True
             try:
-                self._fidget_do(r)
+                done = bool(self._fidget_do(r))
             except _FidgetInterrupt:
                 return '挂机动作 「%s」被交互键打断' % r['name']
             except Exception as e:
@@ -3547,6 +3564,8 @@ class Bot:
             finally:
                 self.fidget_scan = False
                 self._interrupt_fidget = False
+            if not done:
+                return '挂机动作 「%s」→ %s 没做完(按了 F9?)' % (r['name'], r['label'])
             return '挂机动作 「%s」→ %s (每 %.0f 秒)' % (r['name'], r['label'], r['interval'])
         return None
 
@@ -3766,8 +3785,9 @@ class Bot:
         act_hit = self.check_actions(lines, state)
         if act_hit:
             log('    ' + act_hit)
-        if time.time() < self.action_hold_until:
-            # 救援/召回后的 15 秒静默: 防挂机、点击、其它动作全部让路
+        if time.time() < self.action_hold_until and state == 'INGAME':
+            # 救援/召回后的 15 秒静默: 局内防挂机/自定义动作全部让路。
+            # v1.12.6: 只拦局内 —— 大厅/结算/弹窗该点的还要点, 别被静默拖 15 秒
             self.last_state = state
             return state
         act = self.act(state, target, lines, img)
