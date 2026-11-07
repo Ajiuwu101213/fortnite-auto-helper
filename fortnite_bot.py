@@ -624,6 +624,7 @@ SQUAD_ALL_STATES = ('WAITING', 'INGAME')   # v1.9.4: 只有"能看到队伍栏�
 SQUAD_MODE_DEFAULT = 'alive'
 MENU_HAMBURGER_REL = (0.874, 0.062)       # 局内 ESC 侧栏右上角 ☰ 的相对位置(2560x1600 实测 2239,99)
 LEAVE_WORDS = ('返回大厅', '离开对局', '退出对局')
+NAME_WATCH_SEC = 60.0      # v1.12.9: 局内连续多少秒看不到自己的名字 -> 退回大厅重排(0=关闭)
 CONFIRM_WORDS = ('确认', '确定', '是', '离开', '退出')
 SQ_LIST_RELX = 0.32        # 左下角队伍栏右边界(占屏宽比例)
 SQ_LIST_RELY = 0.60        # 左下角队伍栏上边界(占屏高比例)
@@ -1879,6 +1880,11 @@ class Bot:
         self.name_miss = 0                  # 局内连续几轮没认到自己的名字
         self.name_warned = False            # 名字识别失败提示只打一次
         self.name_relax_warned = False       # v1.11.1: 名字长期认不到时放宽反挂机, 只提示一次
+        # v1.12.9: 名字监测 —— 进局内后连续 NAME_WATCH_SEC 秒看不到自己的名字就退局重排
+        self.ingame_since = 0.0              # 双重确认进局内的时刻(计时起点)
+        self.name_seen_at = 0.0              # 最近一次在左下角认到自己名字的时刻
+        self.name_watch_warned = False       # 「已经 N 秒没看到名字」提示只打一次
+        self.name_leave_at = 0.0             # 上次因找不到名字退局的时刻(冷却)
         self.teammates = []
         self.squad_panel = None        # v1.9.1: 进局后自己学到的队伍栏区域 rel(x0,y0,x1,y1)
         self.follow_turn_dir = 0.0     # v1.9.1: 记住上次转身方向, 避免左右来回抖
@@ -2295,13 +2301,13 @@ class Bot:
                 out.append((mid + dx, cy))
         return out
 
-    def leave_bad_squad(self, lines=None):
+    def leave_bad_squad(self, lines=None, reason=None):
         """ESC -> 侧栏 ☰ -> 返回大厅 -> 确认: 退出这局, 回大厅重新匹配
 
         v1.8.3: 动手之前先看一眼画面 —— 如果已经出现「返回大厅 / 比赛回顾」,
         说明这局已经结束(或结算页已经出来了), 交给结算流程, 绝不再按 ESC。
         """
-        log('    队友全都倒了/被淘汰, 队里没有活着的队友: 自动返回大厅重新匹配')
+        log('    ' + (reason or '队友全都倒了/被淘汰, 队里没有活着的队友: 自动返回大厅重新匹配'))
         steps = []
         if lines:
             if find_line(lines, '比赛回顾', '你的排名', '继续和此小队'):
@@ -3750,9 +3756,38 @@ class Bot:
                 if self.name_miss == 5 and not self.name_warned:
                     self.name_warned = True
                     log('WARN 连续5轮局内都没看到名字(%s), 请按 4 检查游戏ID; 也可开宽松模式' % PLAYER_NAME)
+            # v1.12.9: 名字监测 —— 连续 NAME_WATCH_SEC 秒没在左下角认到自己的名字, 就退回大厅重排
+            _now = time.time()
+            _name_hit = self_name_visible(lines, img)
+            if self.ingame_streak == 2:
+                self.ingame_since = _now          # 双重确认进局内: 从这一刻起算 60 秒
+            if _name_hit is not None or _selfst == 'alive':
+                self.name_seen_at = _now
+                self.name_watch_warned = False
+            elif (NAME_WATCH_SEC > 0 and self.ingame_since
+                  and not self.spectating
+                  and not find_line(lines, *SPECTATE_KWS)
+                  and not find_line(lines, *self.RESULT_VETO)
+                  and not find_line(lines, *self.LOBBY_VETO)
+                  and _now - max(self.ingame_since, self.name_seen_at) >= NAME_WATCH_SEC
+                  and _now - self.name_leave_at >= NAME_WATCH_SEC):
+                log('WARN 进局内后连续 %.0f 秒没在左下角看到自己的名字(%s) -> 自动返回大厅重新匹配'
+                    % (_now - max(self.ingame_since, self.name_seen_at), PLAYER_NAME))
+                self.name_leave_at = _now
+                _leave = self.leave_bad_squad(lines, reason='名字监测: 左下角一直没出现自己的名字, 退回大厅重排')
+                if _leave:
+                    log('    ' + str(_leave))
+            elif (NAME_WATCH_SEC > 0 and self.ingame_since and not self.name_watch_warned
+                  and _now - max(self.ingame_since, self.name_seen_at) >= NAME_WATCH_SEC * 0.5):
+                self.name_watch_warned = True
+                log('WARN 已 %.0f 秒没看到自己的名字(%s), 到 %.0f 秒还没看到就自动返回大厅'
+                    % (_now - max(self.ingame_since, self.name_seen_at), PLAYER_NAME, NAME_WATCH_SEC))
         else:
             self.ingame_streak = 0
             self.alive = False
+            self.ingame_since = 0.0           # v1.12.9: 离开局内就重置名字监测
+            self.name_seen_at = 0.0
+            self.name_watch_warned = False
         if state == 'UNKNOWN':
             self.unknown_cycles += 1
         else:
@@ -4167,6 +4202,7 @@ def main():
     AFTER_MATCH = load_after_match()
     log('结算后行为: %s' % ('再玩一局(点「再玩一次」)' if AFTER_MATCH == 'again'
                           else '返回大厅'))
+    log('名字监测: 局内连续 %.0f 秒看不到自己的名字 -> 自动返回大厅重新匹配' % NAME_WATCH_SEC)
     try:
         _rules = load_action_rules()
         log('交互关键词: %s | 交互键=%s' % (
