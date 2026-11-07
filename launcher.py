@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.12.0'
+VERSION = 'v1.12.1'
 REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
 try:
     import updater
@@ -364,6 +364,29 @@ def squad_mode_menu():
     elif a == '2':
         conf = read_conf(); conf['squad_mode'] = 'start'; write_conf(conf)
         _last_action[0] = '退出策略 = 只在开局前（局内不会主动退出）'
+    else:
+        _last_action[0] = '没改'
+
+
+def after_match_label():
+    v = (read_conf().get('after_match') or 'lobby').strip().lower()
+    return '再玩一局' if v == 'again' else '返回大厅'
+
+
+def after_match_menu():
+    print()
+    print('  当前: ' + c(after_match_label(), 'yellow'))
+    print('  [1] 返回大厅 —— 结算后回大厅, 再点「开始」重新匹配(默认)')
+    print('  [2] 再玩一局 —— 结算后直接点「再玩一次」, 省掉回大厅的时间')
+    print('  (改完下一次结算页就生效, 不用重启)')
+    print('  [0] 返回')
+    a = _ask('  选择: ')
+    if a == '1':
+        conf = read_conf(); conf['after_match'] = 'lobby'; write_conf(conf)
+        _last_action[0] = '结算后行为 = 返回大厅'
+    elif a == '2':
+        conf = read_conf(); conf['after_match'] = 'again'; write_conf(conf)
+        _last_action[0] = '结算后行为 = 再玩一局（点「再玩一次」）'
     else:
         _last_action[0] = '没改'
 
@@ -1028,7 +1051,8 @@ def render(proc):
           + '  ' + c('[11]', 'cyan') + ' 热键自检'
           + '  ' + c('[12]', 'cyan') + ' 退出策略:' + squad_mode_label())
     print('  ' + c('[13]', 'cyan') + ' 打开项目主页（看有没有新版本）')
-    print('  ' + c('[14]', 'cyan') + ' 检查更新（自动下载到「下载」文件夹）')
+    print('  ' + c('[14]', 'cyan') + ' 检查更新（自动下载到「下载」文件夹）'
+          + '  ' + c('[15]', 'cyan') + ' 结算后:' + after_match_label())
     print()
     print()
 
@@ -1401,7 +1425,7 @@ def hotkey_check(seconds=10):
 _INPUT_EOF = [False]
 
 
-def _ask(prompt='  请输入序号后按回车（1~14）：'):
+def _ask(prompt='  请输入序号后按回车（1~15）：'):
     """行输入: 你打的字会原样显示在屏幕上, 按回车才算数(不会误触)。"""
     try:
         sys.stdout.write(c(prompt, 'bold'))
@@ -1691,6 +1715,8 @@ def main():
                 time.sleep(0.4)
             elif ans == '14':
                 update_menu()
+            elif ans == '15':
+                after_match_menu()
             elif ans == '13':
                 import webbrowser
                 try:
@@ -1714,7 +1740,7 @@ def main():
                     hotkey_check()
                     _last_action[0] = '已做过热键自检'
                 else:
-                    _last_action[0] = '没有这个选项："%s"（请输入 1~12）' % ans
+                    _last_action[0] = '没有这个选项："%s"（请输入 1~15）' % ans
     except KeyboardInterrupt:
         stop_everything(proc)
         clear()

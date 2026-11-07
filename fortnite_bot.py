@@ -501,6 +501,27 @@ def _parse_key(txt, default):
         return default
 
 
+AFTER_MATCH_DEFAULT = 'lobby'      # 结算后行为: lobby=点「返回大厅」 / again=点「再玩一次」
+AGAIN_WORDS = ('再玩一次', '再来一局', '再匹配一局', '再匹配', '再来一次')
+
+
+def load_after_match():
+    """结算后行为: lobby(回大厅, 默认) / again(直接再开一局)"""
+    try:
+        for ln in io.open(data_file('设置.txt'), encoding='utf-8-sig'):
+            ln = ln.strip()
+            if ln.startswith('after_match') and '=' in ln:
+                v = ln.split('=', 1)[1].strip().lower()
+                if v in ('lobby', 'again'):
+                    return v
+    except Exception:
+        pass
+    return AFTER_MATCH_DEFAULT
+
+
+AFTER_MATCH = AFTER_MATCH_DEFAULT
+
+
 def load_squad_mode():
     """退出重排策略: alive=全程(局内只剩 2 人也退) / start=只在开局前"""
     try:
@@ -1421,7 +1442,12 @@ def classify(lines, img=None):
 
     # 结束判定(用户指定的简化规则): 屏幕上出现「返回大厅 / 再玩一次」= 这局已经结束了,
     # 不管是被打死、被风暴吞、还是队友带着赢/输, 一律直接点它回大厅再开一把。
-    rl = find_line(lines, '返回大厅') or find_line(lines, '再匹配一局', '再来一局', '再玩一次', '再匹配')
+    rl_lobby = find_line(lines, '返回大厅')
+    rl_again = find_line(lines, *AGAIN_WORDS)
+    if AFTER_MATCH == 'again':          # 用户选择「再玩一局」: 优先点它, 找不到才退回大厅
+        rl = rl_again or rl_lobby
+    else:                               # 默认「返回大厅」, 找不到才退回再玩一次
+        rl = rl_lobby or rl_again
     # v1.8.3: 结算页已经出现、但 ESC 菜单/侧栏同时盖在上面(用户实测过这个卡死场景)
     # 这时不能当 MENU(会什么都不做 -> 永远卡住), 也不能盲点(按钮被面板挡住),
     # 先返回 ENDMENU, 由 act() 按一次 ESC 把菜单关掉, 下一轮就能正常点「返回大厅」
@@ -3115,6 +3141,12 @@ class Bot:
             log('SHOT_FAIL %s' % e)
 
     def cycle(self, index=0):
+        # 结算后行为允许中途改: 每轮重新读一次 设置.txt, 在启动器按 [15] 改完不用重启
+        global AFTER_MATCH
+        try:
+            AFTER_MATCH = load_after_match()
+        except Exception:
+            pass
         # ── 堡垒之夜没开 / 被关掉: 明确报告, 不截图不点击
         if not game_window_alive(self.hwnd):
             self.hwnd = find_game_window()
@@ -3501,7 +3533,7 @@ class Bot:
             # 用户要求: 所有点击冷却不超过 3 秒; RESULTS? 只靠 resultsq_cycles 多观察, 不再加长冷却
             res_cd = min(MAX_CLICK_CD, self.results_click_cd)
             if not self.cd_ok('results', res_cd):
-                return '冷却中(还剩 %.0f 秒, 两次「返回大厅」至少隔 %.0f 秒)' % (
+                return '冷却中(还剩 %.0f 秒, 两次结算点击至少隔 %.0f 秒)' % (
                     self.cd_left('results', res_cd), res_cd)
             if target is not None:
                 x, y = center(target)
@@ -3518,7 +3550,7 @@ class Bot:
                 return 'click_results(%s @%d,%d) 第%d次' % (
                     target['text'], x, y, self.results_clicks)
             # 没找到按钮文字: 什么都不做, 等下一轮重新识别(绝不按键、绝不乱点)
-            return '结算页未看清「返回大厅」, 等下一轮'
+            return '结算页未看清按钮, 等下一轮'
 
         # ── 局内菜单(只可能是用户自己按 Esc 打开的): 不做任何操作
         # 菜单里也有「返回大厅」, 但这时对局还没结束, 绝不能点; 也不替用户关菜单。
@@ -3675,6 +3707,10 @@ def follow_test():
 
 def main():
     log('屏幕: %s' % screen_report())
+    global AFTER_MATCH
+    AFTER_MATCH = load_after_match()
+    log('结算后行为: %s' % ('再玩一局(点「再玩一次」)' if AFTER_MATCH == 'again'
+                          else '返回大厅(默认)'))
     ap = argparse.ArgumentParser()
     ap.add_argument('--replay', nargs='*')
     ap.add_argument('--loop', action='store_true', help='立即开始循环(不等 F10)')
