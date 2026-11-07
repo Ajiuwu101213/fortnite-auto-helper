@@ -624,7 +624,10 @@ SQUAD_ALL_STATES = ('WAITING', 'INGAME')   # v1.9.4: 只有"能看到队伍栏�
 SQUAD_MODE_DEFAULT = 'alive'
 MENU_HAMBURGER_REL = (0.874, 0.062)       # 局内 ESC 侧栏右上角 ☰ 的相对位置(2560x1600 实测 2239,99)
 LEAVE_WORDS = ('返回大厅', '离开对局', '退出对局')
-NAME_WATCH_SEC = 60.0      # v1.12.9: 局内连续多少秒看不到自己的名字 -> 退回大厅重排(0=关闭)
+NAME_WATCH_SEC = 60.0
+
+# 跳伞: 看到巴士字样(船长是/司机平稳/空中巴士/空格跳出)后等这么多秒再按一次空格, 一局只按一次
+JUMP_AFTER_BUS_SEC = 10.0      # v1.12.9: 局内连续多少秒看不到自己的名字 -> 退回大厅重排(0=关闭)
 SPACE_WORDS = ('空格',)            # v1.12.10: 画面出现「空格」字样(跳出/跳伞/上升提示)
 SPACE_BLOCK_SEC = 3.0              # 出现后继续封多少秒, 期间挂机动作里带空格的一律不做
 CONFIRM_WORDS = ('确认', '确定', '是', '离开', '退出')
@@ -3720,23 +3723,23 @@ class Bot:
             now = time.time()
             if self.bus_first_seen is None:
                 self.bus_first_seen = now
+                log('    巴士: 看到巴士字样, %.0f 秒后自动按一次空格跳出(一局只按一次)'
+                    % JUMP_AFTER_BUS_SEC)
             elapsed = now - self.bus_first_seen
             extra += ' bus_elapsed=%.1fs' % elapsed
             if secs is not None and self.first_secs is None:
                 self.first_secs = secs
-            # 合理性: 刚上巴士时倒计时应在 20~40 秒. 首次读到个位数多半是 OCR 噪声,
-            # 这时不走"倒计时<=jump_at"的路径, 改用纯时间兜底
-            reliable = secs is not None and (self.first_secs or 0) >= 8
-            due = (reliable and secs <= self.jump_at) or (not reliable and elapsed >= 18)
-            can_press = self.jump_attempts < 3 and (now - self.jump_sent_at) >= 2.5
-            if not self.jumped and due and can_press and elapsed >= 2.0:
+            # 看到巴士文字后等 JUMP_AFTER_BUS_SEC 秒再按, 避免刚上巴士就跳进海里;
+            # 按一次就把 jumped 置 True, 本局不再按 (下一局回大厅/重排时重置)
+            if not self.jumped and elapsed >= JUMP_AFTER_BUS_SEC:
                 if self.dry:
-                    extra += ' [DRY] 该按空格跳伞'
+                    extra += ' [DRY] 该按空格跳伞(等了%.1fs)' % elapsed
                 else:
                     press_scan(VK_SPACE)
-                    self.jump_attempts += 1
+                    self.jumped = True
+                    self.jump_attempts = 1
                     self.jump_sent_at = now
-                    extra += ' ACTION jump=SPACE 第%d次(待确认)' % self.jump_attempts
+                    extra += ' ACTION jump=SPACE(等了%.1fs, 一局一次)' % elapsed
         if state == 'SKYDIVE' and not self.jumped:
             self.jumped = True             # 以"画面真的变成跳伞"为准, 不再只信按键
         if state == 'DEAD':
@@ -4092,8 +4095,8 @@ class Bot:
 
     def run(self, max_cycles=0):
         start_hotkey_thread()
-        log('=== BOT START interval=%.1fs jump_at=%ss dry=%s  (F9=停止 / F10=开始) ==='
-            % (self.interval, self.jump_at, self.dry))
+        log('=== BOT START interval=%.1fs jump_after_bus=%.0fs dry=%s  (F9=停止 / F10=开始) ==='
+            % (self.interval, JUMP_AFTER_BUS_SEC, self.dry))
         self.stop_requested = False
         self.index = 0
         while not self.stop_requested:
