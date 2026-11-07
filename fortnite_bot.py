@@ -4181,13 +4181,12 @@ class Bot:
 
 def daemon(interval=5.0, jump_at=20, dry=False, require_fg=True, autostart=False, fidget=True):
     start_hotkey_thread()
-    """常驻待命: autostart/按 F10 开始自动打, F9 停止(待命时再按 F9 退出脚本)"""
+    """常驻待命: autostart/按 F10 开始自动打, F9 停止(待命时按一次 F9 直接退出脚本)"""
     if autostart:
         log('=== 自动挂机已启动 (F9=停止 / F10=再次开始) ===')
     else:
-        log('=== 待命中: 按 F10 开始自动打; F9 停止 ===')
+        log('=== 待命中: 按 F10 开始自动打; F9 退出脚本 ===')
     _hk_prev.clear()
-    idle_stop = 0.0
     pending = bool(autostart)
     while True:
         try:
@@ -4206,19 +4205,15 @@ def daemon(interval=5.0, jump_at=20, dry=False, require_fg=True, autostart=False
                 _hk_queue.clear()            # 丢掉"停止"的尾巴事件, 免得待命状态又吃到一次
                 _hk_last.clear()
                 time.sleep(0.6)
-                idle_stop = 0.0
                 if bot.stopped_by_warning:
                     log('=== 行为警告: 已彻底停止(返回大厅/不再匹配/不再自动开始), 脚本退出 ===')
                     return
-                log('=== 已停止, 待命中: F10 开始 / F9 再按一次退出脚本 ===')
+                log('=== 已停止, 待命中: F10 开始 / F9 退出脚本 ===')
                 continue
             if hk == 'stop':
-                now2 = time.time()
-                if now2 - idle_stop < 3.0:
-                    log('=== 空闲时连按两次 F9: 退出脚本 ===')
-                    return
-                idle_stop = now2
-                log('=== 现在是待命状态: 按 F10 开始自动打; 想退出脚本请再按一次 F9 ===')
+                # v1.12.13: 待命状态按一次 F9 就直接退出(以前要 3 秒内连按两次, 太反直觉)
+                log('=== 待命状态按 F9: 退出脚本 ===')
+                return
             time.sleep(0.05)
         except KeyboardInterrupt:
             log('=== 脚本退出 (Ctrl+C) ===')
