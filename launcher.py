@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.12.3'
+VERSION = 'v1.12.4'
 REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
 try:
     import updater
@@ -194,7 +194,7 @@ def save_lax(on):
 
 
 # ---------------------------------------------------------------- 按键绑定
-DEFAULT_KEYS = [('跳跃', '0x20'), ('奔跑', '0xA0'), ('稿子', '0x31'), ('动作', '0x42'), ('交互', '0x43'), ('召回小队', '0x47')]
+DEFAULT_KEYS = [('跳跃', '0x20'), ('奔跑', '0xA0'), ('稿子', '0x31'), ('动作', '0x42'), ('交互', '0x45'), ('召回小队', '0x47')]
 
 VK_FRIENDLY = {
     0x20: '空格', 0x0D: '回车', 0x1B: 'Esc', 0x09: 'Tab', 0x08: '退格',
@@ -405,7 +405,7 @@ def keys_menu():
             print('  ' + c('[%d]' % i, 'cyan') + ' ' + pad(name, 10)
                   + c(pad(key_label(vk), 10), 'yellow') + c(vk, 'dim'))
         print()
-        print(c('  用在：奔跑=冲刺 动作=B跳舞 交互=C搜索 召回小队=G重启车；跳跃/稿子=备用', 'dim'))
+        print(c('  用在：奔跑=冲刺 动作=B跳舞 交互=E搜索/开箱/救援 召回小队=G重启车；跳跃/稿子=备用', 'dim'))
         print(c('  [0] 返回      [t] 测试「跳跃」能不能按出来', 'dim'))
         print()
         ans = _ask('  输入序号改键，0 返回：').strip()
@@ -1081,6 +1081,9 @@ def render(proc):
     print('  ' + c('[13]', 'cyan') + ' 打开项目主页（看有没有新版本）')
     print('  ' + c('[14]', 'cyan') + ' 检查更新（自动下载到「下载」文件夹）'
           + '  ' + c('[15]', 'cyan') + ' 结算后:' + after_match_label())
+    print('  ' + c('[16]', 'cyan') + ' 识别动作:'
+          + (('%d 条自定义' % len(read_actions())) if read_actions()
+             else '默认(打开/搜索/救援/召回→交互键)'))
     print()
     print()
 
@@ -1356,6 +1359,152 @@ def write_words(words):
         return False
 
 
+ACTIONS_FILE = data_file('识别动作.txt')
+ACTION_HEADER = [
+    '# 识别动作: 一行一条, 格式  字眼 => 动作',
+    '# 字眼可以写多个, 用 / 或 , 分开; 例: 打开/搜索/上升 => 交互',
+    '# 动作可以写: 点击 / 交互 / 按键:E / 组合键:Ctrl+E',
+    '# 例: 领取 => 点击',
+    '# 例: 召回 => 按键:G',
+    '# 一行只写词(没写 =>)时, 等同「点击」; # 开头是注释',
+]
+ACTION_KINDS = ('点击', '交互')
+
+
+def read_actions():
+    """读 识别动作.txt, 返回有效行(不含注释/空行)"""
+    out = []
+    try:
+        if os.path.exists(ACTIONS_FILE):
+            for ln in io.open(ACTIONS_FILE, encoding='utf-8-sig', errors='replace').read().splitlines():
+                t = ln.strip()
+                if t and not t.startswith('#'):
+                    out.append(t)
+    except Exception:
+        pass
+    return out
+
+
+def write_actions(rows):
+    try:
+        with io.open(ACTIONS_FILE, 'w', encoding='utf-8', newline='') as f:
+            f.write('\r\n'.join(ACTION_HEADER) + '\r\n')
+            for ln in rows:
+                f.write(ln + '\r\n')
+        return True
+    except Exception:
+        return False
+
+
+def action_ok(txt):
+    """检查动作写法: 点击 / 交互 / 按键:E / 组合键:Ctrl+E"""
+    t = (txt or '').strip().lower().replace(' ', '').replace('＋', '+')
+    if not t or t in ('点击', '交互'):
+        return True
+    if t.startswith('按键:') or t.startswith('键:'):
+        return bool(parse_key_text(t.split(':', 1)[1]))
+    if t.startswith('组合键:') or t.startswith('组合:'):
+        parts = [p for p in t.split(':', 1)[1].split('+') if p][:4]
+        return bool(parts) and all(parse_key_text(p) for p in parts)
+    return False
+
+
+def _action_words(row):
+    if '=>' in row:
+        row = row.split('=>', 1)[0]
+    return [w.strip() for w in row.replace('，', ',').replace('、', ',')
+            .replace('/', ',').split(',') if w.strip()]
+
+
+def actions_menu():
+    """[16] 识别动作: 画面出现某些字眼 -> 按键 / 点击 / 组合键"""
+    while True:
+        clear()
+        hide_cursor(True)
+        rows = read_actions()
+        print()
+        print(c('  ┌──────────────────────────────────────────────────────────┐', 'cyan'))
+        print(c('  │  识别动作：画面出现这些字 → 立刻按键 / 点击 / 组合键        │', 'cyan'))
+        print(c('  │  优先级高于防挂机；按完等 5 秒再看，「救援/召回」停 15 秒    │', 'cyan'))
+        print(c('  └──────────────────────────────────────────────────────────┘', 'cyan'))
+        print()
+        if rows:
+            for i, r in enumerate(rows, 1):
+                print('  ' + c('%d.' % i, 'cyan') + '  ' + r)
+        else:
+            print(c('  （没自定义规则，用内置默认）', 'dim'))
+            print(c('  默认：打开/搜索/上升/救援/召回/拾取/互动 → 交互键（默认 E）', 'dim'))
+        print()
+        print('  ' + c('[1]', 'cyan') + ' 添加/修改一条规则   '
+              + c('[2]', 'cyan') + ' 删除一条   '
+              + c('[3]', 'cyan') + ' 恢复默认   '
+              + c('[4]', 'cyan') + ' 用记事本打开   '
+              + c('[0]', 'cyan') + ' 返回')
+        print()
+        ans = _ask('  请输入序号后按回车（0~4）：').strip()
+        if ans in ('0', ''):
+            hide_cursor(False)
+            _last_action[0] = ('已返回主菜单（识别动作：%d 条自定义）' % len(rows) if rows
+                               else '已返回主菜单（识别动作：内置默认）')
+            return
+        if ans == '1':
+            print()
+            w = _ask('  输入字眼（多个用 / 分开，例如 打开/搜索/救援）：').strip()
+            if not w:
+                _last_action[0] = '没输入内容，已取消'
+                time.sleep(0.5)
+                continue
+            a = _ask('  输入动作（点击 / 交互 / 按键:E / 组合键:Ctrl+E，直接回车=交互）：').strip() or '交互'
+            if not action_ok(a):
+                _last_action[0] = '动作写法看不懂："%s"（例：点击 / 交互 / 按键:E / 组合键:Ctrl+E）' % a
+                time.sleep(1.0)
+                continue
+            new_words = [x.strip() for x in w.replace('，', ',').replace('、', ',')
+                         .replace('/', ',').split(',') if x.strip()]
+            rows = [r for r in rows if not (set(_action_words(r)) & set(new_words))]
+            rows.append('%s => %s' % ('/'.join(new_words), a))
+            if not write_actions(rows):
+                _last_action[0] = '写入 识别动作.txt 失败(文件被占用?)'
+                time.sleep(0.8)
+                continue
+            _last_action[0] = '已保存「%s => %s」，下次 OCR 到就生效（不用重启机器人）' % ('/'.join(new_words), a)
+            time.sleep(0.6)
+        elif ans == '2':
+            if not rows:
+                _last_action[0] = '没有自定义规则可删'
+                time.sleep(0.6)
+                continue
+            idx = _ask('  输入要删除的序号（直接回车=取消）：').strip()
+            if not idx.isdigit() or not (1 <= int(idx) <= len(rows)):
+                _last_action[0] = '序号不对，已取消'
+                time.sleep(0.6)
+                continue
+            gone = rows.pop(int(idx) - 1)
+            if not write_actions(rows):
+                _last_action[0] = '写入 识别动作.txt 失败(文件被占用?)'
+                time.sleep(0.8)
+                continue
+            _last_action[0] = '已删除「%s」' % gone
+            time.sleep(0.6)
+        elif ans == '3':
+            try:
+                if os.path.exists(ACTIONS_FILE):
+                    os.remove(ACTIONS_FILE)
+                _last_action[0] = '已恢复默认：打开/搜索/上升/救援/召回/拾取/互动 → 交互键'
+            except Exception as e:
+                _last_action[0] = '删除 识别动作.txt 失败: %r' % (e,)
+            time.sleep(0.6)
+        elif ans == '4':
+            try:
+                if not os.path.exists(ACTIONS_FILE):
+                    write_actions([])
+                os.startfile(ACTIONS_FILE)
+                _last_action[0] = '已用记事本打开 识别动作.txt（改完保存，机器人每轮会自动读）'
+            except Exception as e:
+                _last_action[0] = '打不开文件: %r（路径：%s）' % (e, ACTIONS_FILE)
+            time.sleep(0.8)
+
+
 def words_menu():
     """[9] 自动点击词: 添加 / 删除 / 查看"""
     while True:
@@ -1453,7 +1602,7 @@ def hotkey_check(seconds=10):
 _INPUT_EOF = [False]
 
 
-def _ask(prompt='  请输入序号后按回车（1~15）：'):
+def _ask(prompt='  请输入序号后按回车（1~16）：'):
     """行输入: 你打的字会原样显示在屏幕上, 按回车才算数(不会误触)。"""
     try:
         sys.stdout.write(c(prompt, 'bold'))
@@ -1746,6 +1895,9 @@ def main():
                 update_menu()
             elif ans == '15':
                 after_match_menu()
+            elif ans == '16':
+                actions_menu()
+                continue
             elif ans == '13':
                 import webbrowser
                 try:
@@ -1769,7 +1921,7 @@ def main():
                     hotkey_check()
                     _last_action[0] = '已做过热键自检'
                 else:
-                    _last_action[0] = '没有这个选项："%s"（请输入 1~15）' % ans
+                    _last_action[0] = '没有这个选项："%s"（请输入 1~16）' % ans
     except KeyboardInterrupt:
         stop_everything(proc)
         clear()
