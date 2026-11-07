@@ -1,0 +1,24 @@
+# ---- 运行时 / 大文件（绝对不要提交）----
+python/
+__pycache__/
+*.pyc
+*.zip
+
+# ---- 运行产生的日志与状态 ----
+bot_log.txt
+bot_log.1.txt
+bot_console.log
+stats.txt
+bot.pid
+控制.txt
+bot_shots/
+
+# ---- 个人配置（含你自己的游戏 ID，别上传）----
+设置.txt
+玩家名字.txt
+点击词.txt
+
+# ---- 系统垃圾 ----
+Thumbs.db
+desktop.ini
+.DS_Store
