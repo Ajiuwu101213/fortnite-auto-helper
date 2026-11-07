@@ -624,6 +624,10 @@ SQUAD_ALL_STATES = ('WAITING', 'INGAME')   # v1.9.4: 只有"能看到队伍栏�
 SQUAD_MODE_DEFAULT = 'alive'
 MENU_HAMBURGER_REL = (0.874, 0.062)       # 局内 ESC 侧栏右上角 ☰ 的相对位置(2560x1600 实测 2239,99)
 LEAVE_WORDS = ('返回大厅', '离开对局', '退出对局')
+# v1.12.12: 行为警告页(「行为警告」/「你已被警告」/「理由为最近以下行为」)
+# 一旦识别到 -> 立刻返回大厅, 然后彻底停止(不再匹配/不再做任何操作)
+WARNING_WORDS = ('行为警告', '你已被警告', '警告理由', '最近以下行为', '近期以下行为',
+                 '违反行为准则', '已受到警告')
 NAME_WATCH_SEC = 60.0
 
 # 跳伞: 看到巴士字样(船长是/司机平稳/空中巴士/空格跳出)后等这么多秒再按一次空格, 一局只按一次
@@ -1657,6 +1661,11 @@ def classify(lines, img=None):
     """返回 (state, evidence, target_line)"""
     j = joined(lines)
 
+    # v1.12.12: 行为警告页优先级最高 —— 看到就返回大厅并停止, 绝不能再去点「再玩一次」
+    warn = find_line(lines, *WARNING_WORDS)
+    if warn:
+        return 'WARN', '行为警告:' + warn['text'], warn
+
     # 弹窗(宝藏代币结算 / 奖励领取 / 断线重连) 放最前面:
     # 弹窗会盖住下面的界面(半透明遮罩), 先点掉它, 否则后面的"返回大厅"永远点不到。
     # 必须"确认词 + 弹窗线索"同时出现, 否则局内菜单(也有返回大厅)、聊天里的"好的"会误判。
@@ -1893,6 +1902,7 @@ class Bot:
         # v1.12.10: 画面出现「空格」字样时, 挂机动作里带空格的(跳/按空格)一律不做
         self.space_block_until = 0.0
         self.space_block_logged = False
+        self.stopped_by_warning = False
         self.teammates = []
         self.squad_panel = None        # v1.9.1: 进局后自己学到的队伍栏区域 rel(x0,y0,x1,y1)
         self.follow_turn_dir = 0.0     # v1.9.1: 记住上次转身方向, 避免左右来回抖
@@ -2317,6 +2327,42 @@ class Bot:
             for dx in (44, -44, 0, 100):
                 out.append((mid + dx, cy))
         return out
+
+    def handle_warning(self, lines=None, reason=None):
+        """v1.12.12: 行为警告页 -> 立刻返回大厅, 然后彻底停止(不再匹配, 不再做任何操作)"""
+        log('!!! 画面出现行为警告 -> 立即返回大厅, 然后彻底停止(不再匹配)')
+        if reason:
+            log('    判定依据: %s' % reason)
+        self.stop_requested = True
+        self.stopped_by_warning = True
+        if self.dry:
+            log('[DRY] 行为警告: 不点击, 直接停止')
+            return '[DRY] 行为警告 -> 已停止'
+        steps = []
+        try:
+            if self._ocr_click('返回大厅', LEAVE_WORDS):
+                steps.append('OCR 返回大厅')
+                self._nap(1.0)
+                if self._ocr_click_short('确认退出', CONFIRM_WORDS):
+                    steps.append('确认')
+            else:
+                press_scan(VK_ESC)
+                steps.append('ESC')
+                self._nap(1.0)
+                steps.append(self.click_menu_hamburger_verified(why='☰ 菜单'))
+                self._nap(1.0)
+                if self._ocr_click('返回大厅', LEAVE_WORDS):
+                    steps.append('OCR 返回大厅')
+                    self._nap(1.0)
+                    if self._ocr_click_short('确认退出', CONFIRM_WORDS):
+                        steps.append('确认')
+                else:
+                    steps.append('没找到「返回大厅」')
+        except Exception as e:
+            log('    行为警告处理出错: %r' % (e,))
+        self._nap(1.0)
+        log('    行为警告处理: ' + ' + '.join(steps) + ' -> 已停止所有操作(不再匹配)')
+        return '行为警告: 已返回大厅并停止'
 
     def leave_bad_squad(self, lines=None, reason=None):
         """ESC -> 侧栏 ☰ -> 返回大厅 -> 确认: 退出这局, 回大厅重新匹配
@@ -3651,6 +3697,10 @@ class Bot:
         img = grab()
         lines = ocr_lines(img)
         state, ev, target = classify(lines, img)
+        if state == 'WARN':
+            self.handle_warning(lines, ev)
+            self.last_state = state
+            return state
         # v1.12.10: 画面出现「空格」字样(跳出/跳伞/上升等提示) -> 挂机动作里带空格的先不做,
         # 免得抢在游戏提示前面按空格把跳伞/交互搞乱
         if find_line(lines, *SPACE_WORDS):
@@ -4125,6 +4175,8 @@ class Bot:
             if max_cycles and self.index >= max_cycles:
                 log('=== BOT DONE max_cycles=%d ===' % max_cycles)
                 break
+        if self.stopped_by_warning:
+            log('=== 行为警告: 已停止, 不再自动开始 ===')
 
 
 def daemon(interval=5.0, jump_at=20, dry=False, require_fg=True, autostart=False, fidget=True):
@@ -4155,6 +4207,9 @@ def daemon(interval=5.0, jump_at=20, dry=False, require_fg=True, autostart=False
                 _hk_last.clear()
                 time.sleep(0.6)
                 idle_stop = 0.0
+                if bot.stopped_by_warning:
+                    log('=== 行为警告: 已彻底停止(返回大厅/不再匹配/不再自动开始), 脚本退出 ===')
+                    return
                 log('=== 已停止, 待命中: F10 开始 / F9 再按一次退出脚本 ===')
                 continue
             if hk == 'stop':
@@ -4233,6 +4288,7 @@ def main():
                           else '返回大厅'))
     log('名字监测: 局内连续 %.0f 秒看不到自己的名字 -> 自动返回大厅重新匹配' % NAME_WATCH_SEC)
     log('空格保护: 画面出现「空格」字样时, 挂机动作里带空格的(跳/按空格)一律不做')
+    log('行为警告保护: 识别到「行为警告/你已被警告/理由为最近以下行为」-> 返回大厅, 彻底停止(不再匹配)')
     try:
         _rules = load_action_rules()
         log('交互关键词: %s | 交互键=%s' % (
