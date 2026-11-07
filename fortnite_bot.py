@@ -628,10 +628,10 @@ LEAVE_WORDS = ('返回大厅', '离开对局', '退出对局')
 # 一旦识别到 -> 立刻返回大厅, 然后彻底停止(不再匹配/不再做任何操作)
 WARNING_WORDS = ('行为警告', '你已被警告', '警告理由', '最近以下行为', '近期以下行为',
                  '违反行为准则', '已受到警告')
-NAME_WATCH_SEC = 60.0
+NAME_WATCH_SEC = 60.0     # v1.12.9: 局内连续多少秒看不到自己的名字 -> 退回大厅重排(0=关闭)
 
 # 跳伞: 看到巴士字样(船长是/司机平稳/空中巴士/空格跳出)后等这么多秒再按一次空格, 一局只按一次
-JUMP_AFTER_BUS_SEC = 10.0      # v1.12.9: 局内连续多少秒看不到自己的名字 -> 退回大厅重排(0=关闭)
+JUMP_AFTER_BUS_SEC = 10.0      # v1.12.11: 巴士字样后等这么多秒再按一次空格(一局只按一次)
 SPACE_WORDS = ('空格',)            # v1.12.10: 画面出现「空格」字样(跳出/跳伞/上升提示)
 SPACE_BLOCK_SEC = 3.0              # 出现后继续封多少秒, 期间挂机动作里带空格的一律不做
 CONFIRM_WORDS = ('确认', '确定', '是', '离开', '退出')
@@ -4009,7 +4009,7 @@ class Bot:
             self.log_target = '「%s」@%d,%d-%d,%d' % (
                 target['text'], target['x'], target['y'],
                 target['x'] + target['w'], target['y'] + target['h'])
-            return 'click_modal(%s @%d,%d 矩形 %s) 第%d次' % (target['text'], x, y, self.modal_clicks)
+            return 'click_modal %s 第%d次' % (self.log_target, self.modal_clicks)
 
         # ── 问卷/过场: 点「跳过」, 点完问卷就消失了
         if state == 'SURVEY':
