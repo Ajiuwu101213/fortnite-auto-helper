@@ -1,0 +1,100 @@
+{
+  "version": "v1.11.6",
+  "repo": "Ajiuwu101213/fortnite-auto-helper",
+  "tag": "v1.11.6",
+  "release_title": "堡垒之夜自动挂机 v1.11.6",
+  "asset": {
+    "asset_name": "fortnite-auto-helper_v1.11.6.zip",
+    "label": "堡垒之夜自动挂机 v1.11.6 精简版 (Windows x64, 免安装)",
+    "bytes": 21854245,
+    "sha256": "66C581945168FF6406F675421E6527B4D30571E4F72A55124E4ADB16A1EF4B61"
+  },
+  "files": [
+    {
+      "path": "fortnite_bot.py",
+      "bytes": 175120,
+      "sha256": "2f1e4a632640c6a16a9ca77bd0a83fde88743b7fb9d2643f478dff70b1f09cc0"
+    },
+    {
+      "path": "launcher.py",
+      "bytes": 62153,
+      "sha256": "943c658e8072e42af365d0a3c5f603b9c6557caf7d78bfeadc2397132a38deb2"
+    },
+    {
+      "path": "splash_gen.py",
+      "bytes": 11034,
+      "sha256": "53146696c922d550c3c485e5fee2cb743c7d33e64768d929b3141dec21c3d3e3"
+    },
+    {
+      "path": "splash_art.py",
+      "bytes": 11114,
+      "sha256": "4da8d672e263a0c4133bab6af80bf929ef891217b77df7de8e2e2718c856a89a"
+    },
+    {
+      "path": "splash_braille.py",
+      "bytes": 10963,
+      "sha256": "7c447768c7454ae7356dda654459c2bd3e7907e1aa9955eefd3dce3b3241d651"
+    },
+    {
+      "path": "install_ocr.ps1",
+      "bytes": 927,
+      "sha256": "b4e6ff0edf74f4d50ffbcb40622a972698145140ffbb73391cca647ea179a087"
+    },
+    {
+      "path": "logo.png",
+      "bytes": 185785,
+      "sha256": "1aefc766487c34159a50149a9fb23d3966c9a40abd19ed95e7ba700560d64f5b"
+    },
+    {
+      "path": "启动.bat",
+      "bytes": 1304,
+      "sha256": "879efa90f329a07e8aa9b589df33a30d3783b2ec884e4a68502e8b9729674ed8"
+    },
+    {
+      "path": "使用说明.txt",
+      "bytes": 74483,
+      "sha256": "8d6a5cfb911f6242ce3ca47edf5597123998e3213e7441e199704bee173cba6f"
+    },
+    {
+      "path": "技术说明.md",
+      "bytes": 101921,
+      "sha256": "508a5e0efa15bc0ae6eb5b6a4f99b93c428053569d7c0b49135ec09897183198"
+    },
+    {
+      "path": "README.md",
+      "bytes": 9259,
+      "sha256": "1ddf5ec1bdf5ccf22db5f0c36e3cc20aae70984a1514f3441ac329a0ef1ea749"
+    },
+    {
+      "path": "RELEASE_NOTES.md",
+      "bytes": 1599,
+      "sha256": "9f2b8a6972011c2d8b9f08a7efff5fe201d697e37eec9791cc759dc118408ce7"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1069,
+      "sha256": "5423f4ac68229842bf054399e6d45772c44e4ceb0eb96090c1b31fe6421fd200"
+    },
+    {
+      "path": "NOTICE",
+      "bytes": 1241,
+      "sha256": "55b6a66821f4963f3d422c1e55ecb80c10df47e52e3ed8a2909857855a43c862"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 445,
+      "sha256": "197d802a91f64aaebc2b51fc726f411dd5571c786124be21d0d6fb289563f6ef"
+    },
+    {
+      "path": "docs/preview.png",
+      "bytes": 368994,
+      "sha256": "e0937748846794cab10d3fd16655419921fac26e5b7e18ae8e545fa953119ad1"
+    },
+    {
+      "path": "docs/intro-braille.png",
+      "bytes": 129180,
+      "sha256": "bcff2003393c0fbe4b7c75342ae38805564a6b7e16045c47f362f1349bd3c5cc"
+    }
+  ],
+  "local_zip": "堡垒之夜自动挂机_v1.11.6_精简版.zip"
+}

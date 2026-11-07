@@ -22,3 +22,5 @@ bot_shots/
 Thumbs.db
 desktop.ini
 .DS_Store
+# 给上传者的任务单, 不进仓库
+发布任务单_*.md

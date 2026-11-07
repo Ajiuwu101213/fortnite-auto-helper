@@ -632,10 +632,11 @@ COMPASS_DIRS = ('东北', '东南', '西南', '西北', '北', '东', '南', '�
 # 观战特征词: 屏幕上方「正在观战 XXX」、底部「上一个队友/下一个队友」、死亡后「等待重启」
 # 这些只在「自己已死、正在看队友」时出现, 所以出现任何一个就绝不点「返回大厅」。
 SPECTATE_KWS = ('正在观战', '正在旁观', '正在观看', '观战', '旁观',
-                '上一个队友', '下一个队友', '等待重启')
+                '上一个队友', '下一个队友', '等待重启', '退出观战', '继续观战',
+                '返回观战', '观战队友', '观看队友')
 
 # 疑似结算页先观察几轮(轮询间隔约 2 秒)。0 = 不观察直接点
-RESULTSQ_WAIT_ROUNDS = 2
+RESULTSQ_WAIT_ROUNDS = 4
 INGAME_REGION_W = 900   # 任务条区域: 左上角 900x300
 INGAME_REGION_H = 300
 BAR_SEARCH_REL = (0.010, 0.850, 0.200, 1.000)  # 找血条的搜索区(相对屏幕, 兼容UI缩放)
@@ -1409,9 +1410,13 @@ def classify(lines, img=None):
     watchmark = find_line(lines, *SPECTATE_KWS)
     endmark = find_line(lines, '比赛回顾', '你的排名', '继续和此小队', '胜利王冠', '再来一局', '再玩一次')
     backbtn = find_line(lines, '返回大厅')
+    # v1.11.3: 死亡/淘汰面板上往往同时有「返回大厅」按钮(小队模式还会带「观战」),
+    # 旧逻辑因 backbtn 存在把 DEAD 让给结算页 -> 命令框显示"结算页面", 且队友还活着时
+    # 就把「返回大厅」点掉提前退局。现在只要看到「被淘汰/阵亡/观战」字样一律先判 DEAD
+    # (不点任何按钮); 只有真正出现结算页标记才算这一局结束。
     if watchmark and not endmark:
         return 'DEAD', '观战中:' + (watchmark['text'])[:20], None
-    if deadmark and not endmark and not backbtn:
+    if deadmark and not endmark:
         return 'DEAD', '被淘汰:' + (deadmark['text'])[:20], None
 
     # 结束判定(用户指定的简化规则): 屏幕上出现「返回大厅 / 再玩一次」= 这局已经结束了,
@@ -1426,7 +1431,7 @@ def classify(lines, img=None):
     if rl and not inmenu:
         marker = find_line(lines, '比赛回顾', '你的排名', '经验值', '继续和此小队', '胜利王冠')
         if DEATH_RULE == 'team' and not marker and not rl['norm'].startswith('再'):
-            return 'RESULTS?', '疑似结算页(缺标记):' + rl['text'], rl
+            return 'RESULTS?', '只有「%s」但没结算标记(可能在观战/中途)' % rl['text'], rl
         return 'RESULTS', '结束页面:' + rl['text'], rl
 
     # 死亡横幅已在前面(结算页之前)判定; 这里再兜一次底(极少数只剩横幅、没有其它字的画面)
@@ -2067,17 +2072,18 @@ class Bot:
                 return None
             px = list(img.crop((x0, y0, x1, y1)).getdata())
             n = len(px) or 1
-            white = sum(1 for r, g, b in px if min(r, g, b) > 170 and max(r, g, b) - min(r, g, b) < 45)
-            red = sum(1 for r, g, b in px if r > 120 and r - g > 55 and r - b > 55)
-            gray = sum(1 for r, g, b in px if 115 <= (r + g + b) / 3 <= 172 and max(r, g, b) - min(r, g, b) < 38)
-            white, red, gray = white / n, red / n, gray / n
-            # 白色占优就是活着(先把白判出来, 免得灰色底板/半透明 UI 误判成"阵亡灰")
-            if white >= 0.06 and white > red and white > gray * 1.2:
+            # v1.11.2: HUD 会被环境光染色(沙漠橙/风暴紫/冰面蓝), 绝对 RGB 判"白/红/灰"
+            # 会把整片橙色背景都算成红 -> 误判"我死了" -> 反挂机全停(用户截图复现)。
+            # 改为只认铁证: 整块很红(>45%)且几乎没有亮文字 -> dead; 有亮文字 -> alive;
+            # 灰不再判死(半透明底板本来就是灰); 其余不表态。
+            white = sum(1 for r, g, b in px if min(r, g, b) > 155 and max(r, g, b) - min(r, g, b) < 60)
+            red = sum(1 for r, g, b in px if r > 120 and r - g > 70 and r - b > 70)
+            white, red = white / n, red / n
+            if red >= 0.45 and white < 0.10:
+                return 'dead'
+            if white >= 0.06:
                 return 'alive'
-            if red >= 0.05 and red > white:
-                return 'dead'
-            if gray >= 0.10 and gray > white * 1.5:
-                return 'dead'
+            return None
         except Exception:
             return None
         return None
@@ -2101,8 +2107,9 @@ class Bot:
                 if not (name_match(nm, PLAYER_NAME) or (PLAYER_NAME[:3] and PLAYER_NAME[:3] in l['norm'])):
                     continue
                 st = self._name_color_state(img, (l['x'] - 2, l['y'] - 2, l['x'] + l['w'] + 2, l['y'] + l['h'] + 2))
+                # 只要这行确实是"我的名字"且读到了, 就先记住位置(下次读不到时按位置看颜色)
+                self.self_box = (l['x'] / W, l['y'] / H, (l['x'] + l['w']) / W, (l['y'] + l['h']) / H)
                 if st:
-                    self.self_box = (l['x'] / W, l['y'] / H, (l['x'] + l['w']) / W, (l['y'] + l['h']) / H)
                     return st
         # 兜底: 用本局记住的位置看颜色(名字变红时 OCR 读不出来, 但位置没变)
         if self.self_box:
@@ -3485,6 +3492,10 @@ class Bot:
         if state in ('RESULTS', 'RESULTS?'):
             # RESULTS? 意味着少了"比赛回顾/你的排名/经验值"等标记, 可能其实是观战页;
             # 先观察 4 轮(≈8 秒), 确认它一直不动再动手, 避免把观战页当结算页提前离开
+            # v1.11.3: "只有返回大厅、没有结算标记"的画面, 如果知道自己在观战, 就绝不点
+            # (否则队友还活着时会被提前带回大厅)
+            if state == 'RESULTS?' and self.spectating:
+                return '疑似结算页, 但我正在观战 -> 不点(等小队全部结束)'
             if state == 'RESULTS?' and self.resultsq_cycles < self.resultsq_wait_rounds:
                 return '疑似结算页, 先观察(%d/%d)' % (self.resultsq_cycles, self.resultsq_wait_rounds)
             # 用户要求: 所有点击冷却不超过 3 秒; RESULTS? 只靠 resultsq_cycles 多观察, 不再加长冷却

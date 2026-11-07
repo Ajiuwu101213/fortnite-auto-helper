@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.11.1'
+VERSION = 'v1.11.6'
 W = 64          # 界面宽度(显示字符数)
 
 STATE_CN = {
@@ -72,6 +72,8 @@ STATE_CN = {
     'INGAME': ('战斗', '原地待机等死'),
     'DEAD': ('已阵亡', '观战队友'),
     'RESULTS': ('结算页', '点返回大厅'),
+    'RESULTS?': ('疑似结算页', '只有返回大厅, 观察中'),
+    'ENDMENU': ('结算页被菜单挡住', '按一次 ESC 关菜单'),
     'MENU': ('局内菜单', '关掉菜单'),
     'MODAL': ('弹窗', '点确认'),
     'SURVEY': ('问卷', '点跳过'),
@@ -475,7 +477,7 @@ def read_status():
     except Exception:
         return None, '', 0
     for ln in lines:
-        m = re.search(r'state=(\w+)', ln)
+        m = re.search(r'state=([A-Za-z_?]+)', ln)
         if m:
             state = m.group(1)
         if 'ACTION' in ln:
@@ -582,12 +584,44 @@ def _as_stoppable(proc):
     return _ExtProc(pid) if pid else proc
 
 
+def kill_stray_bots():
+    """把跟本程序相关的 python 进程全部结束掉(命令行里含 fortnite_bot.py 的)。
+    覆盖: 本启动器起的子进程、上次启动器遗留的 daemon、手动跑的 --daemon。
+    返回被结束的 pid 列表。"""
+    killed = []
+    try:
+        # 只找 python 解释器(排除 powershell 自己: 它的命令行里也带 fortnite_bot.py 字样)
+        ps = ("Get-CimInstance Win32_Process | "
+              "Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*fortnite_bot.py*' } | "
+              "ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; "
+              "[string]$_.ProcessId } catch {} }")
+        r = subprocess.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', ps],
+                           capture_output=True, text=True, timeout=20,
+                           creationflags=(0x08000000 if os.name == 'nt' else 0))
+        for tok in (r.stdout or '').split():
+            if tok.strip().isdigit():
+                killed.append(int(tok.strip()))
+    except Exception as e:
+        try:
+            log_ui('清理残留进程时出错: %s' % e)
+        except Exception:
+            pass
+    if killed:
+        try:
+            log_ui('已结束残留的挂机进程: %s' % ', '.join(str(x) for x in killed))
+        except Exception:
+            pass
+    return killed
+
+
 def stop_everything(proc):
-    """[2]/[3]/Ctrl+C/EOF/退出: 都要把机器人真正停掉(包括上次启动器留下的)"""
+    """[2]/[3]/Ctrl+C/EOF/退出: 把机器人真正停掉——不只是本进程的子进程,
+    还包括上次启动器留下的 daemon / 手动起的 --daemon(一律按命令行匹配结束)。"""
     p = _as_stoppable(proc)
     if p is not None:
         stop_bot(p)
     clear_pid_file()
+    kill_stray_bots()
 
 
 # ---------------------------------------------------------------- 界面
@@ -964,7 +998,7 @@ def render(proc):
     # ── 只在「还没填自己的名字」时出现的警告块
     if _nm == DEFAULT_NAME:
         print(c('  ┌' + '─' * W + '┐', 'red'))
-        boxrow('当前仍是默认占位名 “%s”' % DEFAULT_NAME, 'red', W - 1)
+        boxrow('现在用的是作者测试号 “%s”' % DEFAULT_NAME, 'red', W - 1)
         boxrow('先按 4 填名字，再按 1 开始。填错 → 认不到你 → 防挂机不启动：', 'red', W - 1)
         boxrow('局内干站可能被当成挂机踢掉，也可能触发游戏的「休眠模式」。', 'red', W - 1)
         if not _oi.get('zh'):
@@ -1423,7 +1457,7 @@ def main():
                     continue
                 if my_name() == DEFAULT_NAME:
                     print()
-                    print(c('  你现在用的是默认占位名 “%s”，不是你的游戏名字。' % DEFAULT_NAME, 'red'))
+                    print(c('  你现在用的是作者测试号 “%s”，不是你的游戏名字。' % DEFAULT_NAME, 'red'))
                     print(c('  名字不对 → 认不到「你自己在局内还活着」→ 防挂机不会启动。', 'red'))
                     print(c('  结果：局内站着不动 → 可能被当成挂机踢掉，也可能触发游戏的休眠机制。', 'red'))
                     print(c('  建议先按 2 停、按 4 改成你的名字。仍要现在开始？输入 y 回车 = 开始，其它 = 取消', 'yellow'))
@@ -1537,18 +1571,15 @@ def main():
                 _last_action[0] = '开场动画播完了（按 8 可以再看一遍）'
                 time.sleep(0.4)
             elif ans == '3':
+                # v1.11.4: 用户要求——按 3 立刻退出, 不再二次确认
+                stop_everything(proc)
+                clear()
                 print()
-                print(c('  确定退出吗？再输入 3 并按回车 = 退出；其它内容 = 取消', 'yellow'))
-                again = _ask('  退出确认：')
-                if again == '3':
-                    stop_everything(proc)
-                    clear()
-                    print()
-                    print(c('  已退出。感谢使用 —— 有问题联系 QQ ' + AUTHOR_QQ, 'cyan'))
-                    print()
-                    time.sleep(1.5)
-                    return
-                _last_action[0] = '已取消退出，继续挂机'
+                print(c('  已退出（已同时停掉挂机进程）。感谢使用', 'cyan'))
+                print(c('  有问题联系 QQ ' + AUTHOR_QQ, 'cyan'))
+                print()
+                time.sleep(1.5)
+                return
             else:
                 if ans == '11':
                     hotkey_check()

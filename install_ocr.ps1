@@ -1,4 +1,4 @@
-﻿# 安装 Windows 中文(简体) OCR 语言功能 —— 需要以管理员身份运行
+# 安装 Windows 中文(简体) OCR 语言功能 —— 需要以管理员身份运行
 $ErrorActionPreference = 'Stop'
 $cap = 'Language.OCR~~~zh-CN~0.0.1.0'
 Write-Host ''
