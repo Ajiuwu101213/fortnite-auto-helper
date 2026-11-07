@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.12.7'
+VERSION = 'v1.12.8'
 REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
 try:
     import updater
@@ -712,6 +712,21 @@ def boxrow(text, color, inner):
     print(c('  │ ', color) + c(pad(fit(text, inner), inner), color) + c('│', color))
 
 
+def menu_group(title):
+    """菜单分组标题: 左边标题, 右边一条淡色横线"""
+    print('  ' + c(title, 'dim') + ' ' + c('─' * max(1, W - dwidth(title) - 1), 'dim'))
+
+
+def menu_row(num, name, value='', value_color='dim'):
+    """菜单一行: 序号/名称/当前值三列, 列宽固定, 纵向一定对齐"""
+    head = c(pad('[%s]' % num, 7), 'cyan')
+    body = c(pad(fit(name, 16), 16), 'white')
+    if value:
+        print(('  ' + head + body + '  ' + c(fit(value, 42), value_color)).rstrip())
+    else:
+        print(('  ' + head + body).rstrip())
+
+
 def kv(pairs):
     """一行内放多组「标签 值」，例如 kv([('画面','战斗','white'), ('对局','3 局','dim')])"""
     out = []
@@ -1070,28 +1085,44 @@ def render(proc):
         print(c('  └' + '─' * W + '┘', 'red'))
         print()
 
-    # ── 菜单
+    # ── 菜单: 分组 + 三列对齐(序号 / 名称 / 当前值)
     print(c('  ' + hr('─'), 'dim'))
     print()
-    print('  ' + c('[1]', 'cyan') + ' 开始挂机       '
-          + c('[2]', 'cyan') + ' 停止挂机       '
-          + c('[3]', 'cyan') + ' 退出程序')
-    print('  ' + c('[4]', 'cyan') + ' 改我的游戏ID  '
-          + c('[5]', 'cyan') + ' 名字识别：' + ('宽松' if _lax else '严格')
-          + '  ' + c('[6]', 'cyan') + ' 装中文OCR')
-    print('  ' + c('[7]', 'cyan') + ' 校准视角灵敏度（局内、活着时用）'
-          + '  ' + c('[8]', 'cyan') + ' 重播开场动画'
-          + '  ' + c('[9]', 'cyan') + ' 自动点击词(%d)' % len(read_words())
-          + '  ' + c('[10]', 'cyan') + ' 按键绑定'
-          + '  ' + c('[11]', 'cyan') + ' 热键自检'
-          + '  ' + c('[12]', 'cyan') + ' 退出策略:' + squad_mode_label())
-    print('  ' + c('[13]', 'cyan') + ' 打开项目主页（看有没有新版本）')
-    print('  ' + c('[14]', 'cyan') + ' 检查更新（自动下载到「下载」文件夹）'
-          + '  ' + c('[15]', 'cyan') + ' 结算后:' + after_match_label())
-    print('  ' + c('[16]', 'cyan') + ' 识别动作:'
-          + (('%d 条自定义' % len(read_actions())) if read_actions()
-             else '默认(打开/搜索/救援/召回→交互键)'))
-    print('  ' + c('[17]', 'cyan') + ' 挂机机制:' + fidget_label())
+
+    menu_group('开始 / 停止')
+    menu_row('1', '开始挂机')
+    menu_row('2', '停止挂机')
+    menu_row('3', '退出程序')
+    print()
+
+    menu_group('我的游戏 / 识别')
+    menu_row('4', '改我的游戏ID', _nm, 'red' if _nm == DEFAULT_NAME else 'white')
+    menu_row('5', '名字识别', '宽松（容易认错）' if _lax else '严格（推荐）',
+             'yellow' if _lax else 'white')
+    menu_row('6', '中文 OCR', '正常' if _oi.get('zh') else '缺失（按 6 安装）',
+             'white' if _oi.get('zh') else 'red')
+    print()
+
+    menu_group('手感 / 按键')
+    menu_row('7', '校准视角灵敏度', '%.1f px/度（局内、活着时按 7）' % _cal)
+    menu_row('8', '重播开场动画')
+    menu_row('9', '自动点击词', '%d 个' % len(read_words()))
+    menu_row('10', '按键绑定')
+    menu_row('11', '热键自检')
+    print()
+
+    menu_group('自动行为')
+    menu_row('12', '退出策略', squad_mode_label())
+    menu_row('15', '结算后', after_match_label())
+    menu_row('16', '识别动作',
+             ('%d 条自定义' % len(read_actions())) if read_actions()
+             else '默认（内置 7 词→交互键）')
+    menu_row('17', '挂机机制', fidget_label())
+    print()
+
+    menu_group('程序 / 更新')
+    menu_row('13', '打开项目主页', '看有没有新版本')
+    menu_row('14', '检查更新', '自动下载到「下载」文件夹')
     print()
     print()
 
