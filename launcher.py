@@ -59,7 +59,8 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.11.6'
+VERSION = 'v1.11.7'
+REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'   # 项目主页(更新地址)
 W = 64          # 界面宽度(显示字符数)
 
 STATE_CN = {
@@ -874,6 +875,7 @@ def play_intro(skipable=True):
         print()
         print(c(_center('堡垒之夜 · 自动挂机助手 ' + VERSION), 'bold'))
         print(c(_center('作者 ' + AUTHOR_NAME + '   ·   QQ ' + AUTHOR_QQ), 'dim'))
+        print(c(_center('项目主页 ' + REPO_URL), 'cyan'))
 
         steps, label = 36, '正在初始化 OCR 引擎 '
         bind = max(0, (cols - steps - 6 - dwidth(label)) // 2)
@@ -1021,6 +1023,8 @@ def render(proc):
           + '  ' + c('[10]', 'cyan') + ' 按键绑定'
           + '  ' + c('[11]', 'cyan') + ' 热键自检'
           + '  ' + c('[12]', 'cyan') + ' 退出策略:' + squad_mode_label())
+    print('  ' + c('[13]', 'cyan') + ' 打开项目主页（看有没有新版本）')
+    print()
     print()
 
     # ── 反馈 / 快捷键 / 当前提示
@@ -1039,6 +1043,7 @@ def render(proc):
             print('  ' + c('● 未运行：输入 1 回车即可开始（会自动切到游戏窗口）。', 'yellow'))
     print()
     print(c('  ' + hr('─'), 'dim'))
+    print('  ' + c(pad('项目主页', 10), 'dim') + c(REPO_URL, 'cyan') + c('   ← 更新地址', 'dim'))
     print('  ' + c('有 bug / 报错 → 加 QQ ' + AUTHOR_QQ + '，把 bot_log.txt 一起发我', 'magenta'))
     print()
 
@@ -1391,7 +1396,7 @@ def hotkey_check(seconds=10):
 _INPUT_EOF = [False]
 
 
-def _ask(prompt='  请输入序号后按回车（1~12）：'):
+def _ask(prompt='  请输入序号后按回车（1~13）：'):
     """行输入: 你打的字会原样显示在屏幕上, 按回车才算数(不会误触)。"""
     try:
         sys.stdout.write(c(prompt, 'bold'))
@@ -1570,6 +1575,14 @@ def main():
                 hide_cursor(False)
                 _last_action[0] = '开场动画播完了（按 8 可以再看一遍）'
                 time.sleep(0.4)
+            elif ans == '13':
+                import webbrowser
+                try:
+                    webbrowser.open(REPO_URL)
+                    _last_action[0] = '已用浏览器打开项目主页：' + REPO_URL
+                except Exception:
+                    _last_action[0] = '打不开浏览器，请手动访问：' + REPO_URL
+                time.sleep(0.6)
             elif ans == '3':
                 # v1.11.4: 用户要求——按 3 立刻退出, 不再二次确认
                 stop_everything(proc)

@@ -1,13 +1,13 @@
 {
-  "version": "v1.11.6",
+  "version": "v1.11.7",
   "repo": "Ajiuwu101213/fortnite-auto-helper",
-  "tag": "v1.11.6",
-  "release_title": "堡垒之夜自动挂机 v1.11.6",
+  "tag": "v1.11.7",
+  "release_title": "堡垒之夜自动挂机 v1.11.7",
   "asset": {
-    "asset_name": "fortnite-auto-helper_v1.11.6.zip",
-    "label": "堡垒之夜自动挂机 v1.11.6 精简版 (Windows x64, 免安装)",
-    "bytes": 21854245,
-    "sha256": "66C581945168FF6406F675421E6527B4D30571E4F72A55124E4ADB16A1EF4B61"
+    "asset_name": "fortnite-auto-helper_v1.11.7.zip",
+    "label": "堡垒之夜自动挂机 v1.11.7 精简版 (Windows x64, 免安装)",
+    "bytes": 22375752,
+    "sha256": "048489745CA4B5FFCD316FCC34A25A9FBC068AE37A16BB5149704859BEE6B530"
   },
   "files": [
     {
@@ -17,8 +17,8 @@
     },
     {
       "path": "launcher.py",
-      "bytes": 62153,
-      "sha256": "943c658e8072e42af365d0a3c5f603b9c6557caf7d78bfeadc2397132a38deb2"
+      "bytes": 62895,
+      "sha256": "93b7de7c2c4b16cd85fa35109413f959f694636385cd10367ae2ac8afbef1b75"
     },
     {
       "path": "splash_gen.py",
@@ -52,8 +52,8 @@
     },
     {
       "path": "使用说明.txt",
-      "bytes": 74483,
-      "sha256": "8d6a5cfb911f6242ce3ca47edf5597123998e3213e7441e199704bee173cba6f"
+      "bytes": 75028,
+      "sha256": "ddbcb37200cb1026550ae985531a261296dfe50ea074f34e042855e2be2001de"
     },
     {
       "path": "技术说明.md",
@@ -62,13 +62,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 9259,
-      "sha256": "1ddf5ec1bdf5ccf22db5f0c36e3cc20aae70984a1514f3441ac329a0ef1ea749"
+      "bytes": 9562,
+      "sha256": "2a8c71614180f0b9d6471656d7a232158e72dfbb89152d208e5d3673cd3ad2be"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "bytes": 1599,
-      "sha256": "9f2b8a6972011c2d8b9f08a7efff5fe201d697e37eec9791cc759dc118408ce7"
+      "bytes": 1579,
+      "sha256": "40c7f252f076487412158cdbced065c0718bf2caaa4425e2ad859c8ce0acd544"
     },
     {
       "path": "LICENSE",
@@ -96,5 +96,5 @@
       "sha256": "bcff2003393c0fbe4b7c75342ae38805564a6b7e16045c47f362f1349bd3c5cc"
     }
   ],
-  "local_zip": "堡垒之夜自动挂机_v1.11.6_精简版.zip"
+  "local_zip": "堡垒之夜自动挂机_v1.11.7_精简版.zip"
 }
