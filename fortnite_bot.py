@@ -625,6 +625,8 @@ SQUAD_MODE_DEFAULT = 'alive'
 MENU_HAMBURGER_REL = (0.874, 0.062)       # 局内 ESC 侧栏右上角 ☰ 的相对位置(2560x1600 实测 2239,99)
 LEAVE_WORDS = ('返回大厅', '离开对局', '退出对局')
 NAME_WATCH_SEC = 60.0      # v1.12.9: 局内连续多少秒看不到自己的名字 -> 退回大厅重排(0=关闭)
+SPACE_WORDS = ('空格',)            # v1.12.10: 画面出现「空格」字样(跳出/跳伞/上升提示)
+SPACE_BLOCK_SEC = 3.0              # 出现后继续封多少秒, 期间挂机动作里带空格的一律不做
 CONFIRM_WORDS = ('确认', '确定', '是', '离开', '退出')
 SQ_LIST_RELX = 0.32        # 左下角队伍栏右边界(占屏宽比例)
 SQ_LIST_RELY = 0.60        # 左下角队伍栏上边界(占屏高比例)
@@ -1741,12 +1743,12 @@ def classify(lines, img=None):
         return 'WAITING', wait['text'], None
 
     # 战斗巴士(气球船): 必须靠"船长是/司机平稳驾驶"这类独有文本, 不能用"空格跳出"
-    bus = find_line(lines, '船长是', '司机平稳', '空中巴士')
+    bus = find_line(lines, '船长是', '司机平稳', '空中巴士', '空格跳出')
     if bus:
         return 'BUS', bus['text'], bus
 
     # 跳伞/滑翔中(巴士跳出后, 不需要任何操作)
-    sky = find_line(lines, '部署卓耿', '空格跳出', '空格跳过', '空格跳伞')
+    sky = find_line(lines, '部署卓耿', '空格跳过', '空格跳伞')
     if sky:
         return 'SKYDIVE', sky['text'], None
 
@@ -1885,6 +1887,9 @@ class Bot:
         self.name_seen_at = 0.0              # 最近一次在左下角认到自己名字的时刻
         self.name_watch_warned = False       # 「已经 N 秒没看到名字」提示只打一次
         self.name_leave_at = 0.0             # 上次因找不到名字退局的时刻(冷却)
+        # v1.12.10: 画面出现「空格」字样时, 挂机动作里带空格的(跳/按空格)一律不做
+        self.space_block_until = 0.0
+        self.space_block_logged = False
         self.teammates = []
         self.squad_panel = None        # v1.9.1: 进局后自己学到的队伍栏区域 rel(x0,y0,x1,y1)
         self.follow_turn_dir = 0.0     # v1.9.1: 记住上次转身方向, 避免左右来回抖
@@ -1986,6 +1991,8 @@ class Bot:
         """原地/移动中跳一下(空格)"""
         if self.stop_requested:
             return False
+        if time.time() < self.space_block_until:
+            return False          # v1.12.10: 画面有「空格」字样, 不抢空格
         press_scan(key_vk('跳跃'))
         return True
 
@@ -2056,6 +2063,13 @@ class Bot:
         _sw = load_fidget_switches()
         _w = {'A': 20, 'B': 8, 'D': 18, 'E': 54}
         _kinds = [k for k in ('A', 'B', 'D', 'E') if k == 'E' or _sw.get(k.lower(), True)]
+        if time.time() < self.space_block_until:
+            # v1.12.10: 画面有「空格」字样 -> 只做不含空格的 D 串(A/B/E 都带跳)
+            _kinds = [k for k in _kinds if k == 'D']
+            if not _kinds:
+                self.next_fidget = t_start + FIDGET_INTERVAL
+                log('    FIDGET 跳过: 画面有「空格」字样(带空格的串先不做)')
+                return None
         kind = random.choices(_kinds, weights=[_w[k] for k in _kinds])[0]
         if self.dry:
             self.next_fidget = t_start + FIDGET_INTERVAL
@@ -3159,7 +3173,8 @@ class Bot:
                 # 跑动 + 跳跃(W 始终按着)
                 chunk_i += 1
                 chunk = min(random.uniform(1.2, 2.4), max(0.2, total - (time.time() - t0)))
-                if jumps < jump_plan and (time.time() >= next_jump or chunk_i % 2 == 1):
+                if (jumps < jump_plan and time.time() >= self.space_block_until
+                        and (time.time() >= next_jump or chunk_i % 2 == 1)):
                     press_scan(jump_vk)          # W 不松, 只点一下空格
                     jumps += 1
                     next_jump = time.time() + random.uniform(2.2, 4.0)
@@ -3519,6 +3534,8 @@ class Bot:
         if r['kind'] == 'combo':
             return self._send_combo(r['vks'])
         vk = r['vk']
+        if time.time() < self.space_block_until and (vk == VK_SPACE or VK_SPACE in (r.get('vks') or ())):
+            return False          # v1.12.10: 画面有「空格」字样, 含空格的自定义动作先不做
         if r['hold'] > 0:
             key_down_scan(vk)
             try:
@@ -3571,7 +3588,7 @@ class Bot:
                 self.fidget_scan = False
                 self._interrupt_fidget = False
             if not done:
-                return '挂机动作 「%s」→ %s 没做完(按了 F9?)' % (r['name'], r['label'])
+                return '挂机动作 「%s」→ %s 没做完(按了 F9, 或画面有「空格」字样)' % (r['name'], r['label'])
             return '挂机动作 「%s」→ %s (每 %.0f 秒)' % (r['name'], r['label'], r['interval'])
         return None
 
@@ -3631,6 +3648,15 @@ class Bot:
         img = grab()
         lines = ocr_lines(img)
         state, ev, target = classify(lines, img)
+        # v1.12.10: 画面出现「空格」字样(跳出/跳伞/上升等提示) -> 挂机动作里带空格的先不做,
+        # 免得抢在游戏提示前面按空格把跳伞/交互搞乱
+        if find_line(lines, *SPACE_WORDS):
+            if not self.space_block_logged:
+                self.space_block_logged = True
+                log('    画面出现「空格」字样 -> 挂机动作里带空格的(跳/按空格)先不做')
+            self.space_block_until = time.time() + SPACE_BLOCK_SEC
+        elif time.time() >= self.space_block_until:
+            self.space_block_logged = False
         extra = ''
         if self.last_state == 'MATCHING' and state == 'LOBBY':
             # 匹配被取消(用户手动点了「取消」) → 别跟用户抢, 先安静 6 秒再点
@@ -4203,6 +4229,7 @@ def main():
     log('结算后行为: %s' % ('再玩一局(点「再玩一次」)' if AFTER_MATCH == 'again'
                           else '返回大厅'))
     log('名字监测: 局内连续 %.0f 秒看不到自己的名字 -> 自动返回大厅重新匹配' % NAME_WATCH_SEC)
+    log('空格保护: 画面出现「空格」字样时, 挂机动作里带空格的(跳/按空格)一律不做')
     try:
         _rules = load_action_rules()
         log('交互关键词: %s | 交互键=%s' % (

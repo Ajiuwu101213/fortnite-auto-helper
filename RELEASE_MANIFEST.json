@@ -1,24 +1,24 @@
 {
-  "version": "v1.12.9",
+  "version": "v1.12.10",
   "repo": "Ajiuwu101213/fortnite-auto-helper",
-  "tag": "v1.12.9",
-  "release_title": "堡垒之夜自动挂机 v1.12.9",
+  "tag": "v1.12.10",
+  "release_title": "堡垒之夜自动挂机 v1.12.10",
   "asset": {
-    "asset_name": "fortnite-auto-helper_v1.12.9.zip",
-    "label": "堡垒之夜自动挂机 v1.12.9 精简版 (Windows x64, 免安装)",
-    "bytes": 20667352,
-    "sha256": "AE325BD3C983DC4F1D7F293155C8AB4DBE7A71B20D35FB151A983A24271507BD"
+    "asset_name": "fortnite-auto-helper_v1.12.10.zip",
+    "label": "堡垒之夜自动挂机 v1.12.10 精简版 (Windows x64, 免安装)",
+    "bytes": 20669476,
+    "sha256": "9E6FD1BD0A5599D21313AC9F12D4CF221D280FB2C5A11187E7F9D98F19F77FBA"
   },
   "files": [
     {
       "path": "fortnite_bot.py",
-      "bytes": 200716,
-      "sha256": "7b3fa4d22e10d3b88b7e51736f71b236f6c9fea43feeab13e84bc0d7e7cdf776"
+      "bytes": 202711,
+      "sha256": "03804521596b6aee23fbd3ac539fd52f478949967df2e8f9b655ea0198d01b7b"
     },
     {
       "path": "launcher.py",
-      "bytes": 94895,
-      "sha256": "cb375a8c5f766d587dee4fc28409b9eebacf01e5676106e66d5547e9b00c2b4c"
+      "bytes": 94896,
+      "sha256": "b1a3627b8bced82a688aa629bcb1ce28ff864427036d87def52d76716fc06750"
     },
     {
       "path": "updater.py",
@@ -57,23 +57,23 @@
     },
     {
       "path": "使用说明.txt",
-      "bytes": 89276,
-      "sha256": "30e8e7398be29b63e50be4dcdd8c7bb65c452cd5bb75055bf61ab5b4021f1876"
+      "bytes": 91201,
+      "sha256": "dbd51fa2e20fd7e2454abfe57c92f1b520b454fa5e27b2b14351472e3c7d5870"
     },
     {
       "path": "技术说明.md",
-      "bytes": 120118,
-      "sha256": "5d9bf013f6ea7256d38e39e7ec3c4e1150c184c25ce7cbc2ff1b5421b8858230"
+      "bytes": 121602,
+      "sha256": "3374c31d2e7b70c0f26053df4ee5c4ce4c38a8086c7fd4e7166d950a491dfc67"
     },
     {
       "path": "README.md",
-      "bytes": 12507,
-      "sha256": "cb75e1e4065398a4e70ab24a0c30742b467759299b39b342dec1047b646b4fef"
+      "bytes": 13130,
+      "sha256": "e0ea1ef16896da4f3bb9bb47652e43b5dd7da7002b9e1e0542151942b4c98628"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "bytes": 1728,
-      "sha256": "51277b7a0edb6299538ecb549dfc196d03b37388e082635e4541be14c607ef6e"
+      "bytes": 1974,
+      "sha256": "5df2a11323a18d4411b8fd990ea4b802bcce9222b5de075ed186f710dab1897e"
     },
     {
       "path": "LICENSE",
@@ -101,5 +101,5 @@
       "sha256": "bcff2003393c0fbe4b7c75342ae38805564a6b7e16045c47f362f1349bd3c5cc"
     }
   ],
-  "local_zip": "堡垒之夜自动挂机_v1.12.9_精简版.zip"
+  "local_zip": "堡垒之夜自动挂机_v1.12.10_精简版.zip"
 }
