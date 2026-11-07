@@ -501,12 +501,12 @@ def _parse_key(txt, default):
         return default
 
 
-AFTER_MATCH_DEFAULT = 'lobby'      # 结算后行为: lobby=点「返回大厅」 / again=点「再玩一次」
+AFTER_MATCH_DEFAULT = 'again'      # 结算后行为: again=点「再玩一次」(默认) / lobby=点「返回大厅」
 AGAIN_WORDS = ('再玩一次', '再来一局', '再匹配一局', '再匹配', '再来一次')
 
 
 def load_after_match():
-    """结算后行为: lobby(回大厅, 默认) / again(直接再开一局)"""
+    """结算后行为: again(直接再开一局, 默认) / lobby(回大厅)"""
     try:
         for ln in io.open(data_file('设置.txt'), encoding='utf-8-sig'):
             ln = ln.strip()
@@ -1444,9 +1444,9 @@ def classify(lines, img=None):
     # 不管是被打死、被风暴吞、还是队友带着赢/输, 一律直接点它回大厅再开一把。
     rl_lobby = find_line(lines, '返回大厅')
     rl_again = find_line(lines, *AGAIN_WORDS)
-    if AFTER_MATCH == 'again':          # 用户选择「再玩一局」: 优先点它, 找不到才退回大厅
+    if AFTER_MATCH == 'again':          # 默认「再玩一局」: 优先点它, 找不到才退回大厅
         rl = rl_again or rl_lobby
-    else:                               # 默认「返回大厅」, 找不到才退回再玩一次
+    else:                               # 用户选的是「返回大厅」, 找不到才退回再玩一次
         rl = rl_lobby or rl_again
     # v1.8.3: 结算页已经出现、但 ESC 菜单/侧栏同时盖在上面(用户实测过这个卡死场景)
     # 这时不能当 MENU(会什么都不做 -> 永远卡住), 也不能盲点(按钮被面板挡住),
