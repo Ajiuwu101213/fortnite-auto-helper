@@ -6,14 +6,14 @@
   "asset": {
     "asset_name": "fortnite-auto-helper_v1.12.4.zip",
     "label": "堡垒之夜自动挂机 v1.12.4 精简版 (Windows x64, 免安装)",
-    "bytes": 20649180,
-    "sha256": "EDEBE31C1CFEF5A9A95FE0032BDD408F254D9BE7DF5A5E9ED00AE371AC5AC9B9"
+    "bytes": 20649228,
+    "sha256": "7D1BCC9CEA5CB6303C820795F2FEC5C01A176BB8CF9AEE33F92DE39EE7A7AC09"
   },
   "files": [
     {
       "path": "fortnite_bot.py",
-      "bytes": 185237,
-      "sha256": "08b7e5e6ef688ccbc0eedce00e22bec69664db697842ed4f4e004e92dbaf24cb"
+      "bytes": 185441,
+      "sha256": "c3920278232eb72f7940a49880fcac7d7f135a097dddb621c3c76c8a99b3a81a"
     },
     {
       "path": "launcher.py",

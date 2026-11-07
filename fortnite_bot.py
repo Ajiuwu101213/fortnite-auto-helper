@@ -3521,6 +3521,10 @@ class Bot:
         act_hit = self.check_actions(lines, state)
         if act_hit:
             log('    ' + act_hit)
+        if time.time() < self.action_hold_until:
+            # 救援/召回后的 15 秒静默: 防挂机、点击、其它动作全部让路
+            self.last_state = state
+            return state
         act = self.act(state, target, lines, img)
         if act:
             log('    ACTION %s' % act)
