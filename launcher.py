@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.12.4'
+VERSION = 'v1.12.5'
 REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
 try:
     import updater
@@ -1084,6 +1084,7 @@ def render(proc):
     print('  ' + c('[16]', 'cyan') + ' 识别动作:'
           + (('%d 条自定义' % len(read_actions())) if read_actions()
              else '默认(打开/搜索/救援/召回→交互键)'))
+    print('  ' + c('[17]', 'cyan') + ' 挂机机制:' + fidget_label())
     print()
     print()
 
@@ -1505,6 +1506,252 @@ def actions_menu():
             time.sleep(0.8)
 
 
+# ── v1.12.5 挂机机制 [17] ──────────────────────────────────────────────
+FIDGET_FILE = data_file('挂机动作.txt')
+FIDGET_HEADER = [
+    '# 挂机动作(自定义): 一行一条, 格式  名称 => 动作 @ 间隔秒',
+    '# 动作可以写: 按:E / 长按:E:2 / 连点:E:3 / 连点:E:3:0.4',
+    '#            点击 / 点击:左键:3 / 长按左键:10 / 组合键:Ctrl+E',
+    '# 间隔不写默认 20 秒(最少 2 秒)',
+    '# 例: 点左键 => 点击:左键:3 @ 6',
+    '# 例: 按住W  => 长按:W:2 @ 15',
+    '# 追踪队友(自动朝队友走)是内置核心动作, 不在这个文件里, 也不能关',
+]
+FIDGET_BUILTIN = [
+    ('A', '综合串', '走两步+看视角+左键+换物品+跳/表情'),
+    ('B', '冲刺串', 'W+Shift 冲刺 5 秒 + 空格跳'),
+    ('D', '互动串', 'F 切稿子 + 长按左键 10 秒 + 切回'),
+]
+FIDGET_SWITCH_KEYS = {'A': 'fidget_a', 'B': 'fidget_b', 'D': 'fidget_d'}
+FIDGET_MOUSE = ('左键', '左', '右键', '右', 'left', 'right', 'lmb', 'rmb')
+
+
+def fidget_switch(key):
+    """内置串开关: 设置.txt 里 fidget_a/b/d, 缺省=开"""
+    return (read_conf().get(key, '1') or '1').strip().lower() not in ('0', 'off', 'false', '否', '关')
+
+
+def read_fidget():
+    """读 挂机动作.txt 里的有效行"""
+    out = []
+    try:
+        if os.path.exists(FIDGET_FILE):
+            for ln in io.open(FIDGET_FILE, encoding='utf-8-sig', errors='replace').read().splitlines():
+                t = ln.strip()
+                if t and not t.startswith('#'):
+                    out.append(t)
+    except Exception:
+        pass
+    return out
+
+
+def write_fidget(rows):
+    try:
+        with io.open(FIDGET_FILE, 'w', encoding='utf-8', newline='') as f:
+            f.write('\r\n'.join(FIDGET_HEADER) + '\r\n')
+            for ln in rows:
+                f.write(ln + '\r\n')
+        return True
+    except Exception:
+        return False
+
+
+def _fnum_ok(txt, lo, hi):
+    try:
+        v = float(str(txt).strip())
+        return lo <= v <= hi
+    except Exception:
+        return False
+
+
+def fidget_ok(spec):
+    """检查自定义动作写法; 返回 (ok, 原因)"""
+    t = (spec or '').strip().lower().replace(' ', '').replace('＋', '+')
+    if not t:
+        return False, '动作不能空'
+    verb, _, rest = t.partition(':')
+    parts = [p for p in rest.split(':') if p] if rest else []
+    if verb in ('按', '按键'):
+        if parts and parse_key_text(parts[0]):
+            return True, ''
+        return False, '要写成 按:E'
+    if verb in ('长按左键', '长按右键', '按住左键', '按住右键'):
+        return (True, '') if not parts or _fnum_ok(parts[0], 0.1, 30) else (False, '秒数要 0.1~30')
+    if verb in ('长按', '按住'):
+        if not parts:
+            return False, '要写成 长按:E:2 或 长按左键:10'
+        if parts[0] in FIDGET_MOUSE:
+            return (True, '') if len(parts) < 2 or _fnum_ok(parts[1], 0.1, 30) else (False, '秒数要 0.1~30')
+        if not parse_key_text(parts[0]):
+            return False, '按键名看不懂：%s' % parts[0]
+        return (True, '') if len(parts) < 2 or _fnum_ok(parts[1], 0.1, 30) else (False, '秒数要 0.1~30')
+    if verb in ('连点', '多点', '连续点击'):
+        if not parts or not (parse_key_text(parts[0]) or parts[0] in FIDGET_MOUSE):
+            return False, '要写成 连点:E:3 或 连点:左键:3'
+        if len(parts) > 1 and not (parts[1].isdigit() and 1 <= int(parts[1]) <= 50):
+            return False, '次数要 1~50'
+        if len(parts) > 2 and not _fnum_ok(parts[2], 0.05, 5):
+            return False, '间隔要 0.05~5 秒'
+        return True, ''
+    if verb in ('点击', '单击'):
+        tgt = parts[0] if parts else '左键'
+        if tgt not in FIDGET_MOUSE:
+            return False, '要写成 点击 / 点击:左键:3'
+        if len(parts) > 1 and not (parts[1].isdigit() and 1 <= int(parts[1]) <= 50):
+            return False, '次数要 1~50'
+        return True, ''
+    if verb in ('组合键', '组合'):
+        ps = [p for p in rest.split('+') if p][:4]
+        if ps and all(parse_key_text(p) for p in ps):
+            return True, ''
+        return False, '要写成 组合键:Ctrl+E'
+    return False, '动作开头只支持: 按 / 长按 / 连点 / 点击 / 长按左键 / 组合键'
+
+
+def fidget_label():
+    on = [k for k in ('A', 'B', 'D') if fidget_switch(FIDGET_SWITCH_KEYS[k])]
+    n = len(read_fidget())
+    return '内置%s·追踪队友·自定义%d条' % (''.join(on) if on else '全关', n)
+
+
+def fidget_menu():
+    """[17] 挂机机制: 内置串开关 + 自定义动作(增删改)"""
+    while True:
+        clear()
+        hide_cursor(True)
+        rows = read_fidget()
+        print()
+        print(c('  ┌──────────────────────────────────────────────────────────┐', 'cyan'))
+        print(c('  │  挂机机制：内置反挂机动作可开关，也可以加自己的动作        │', 'cyan'))
+        print(c('  │  追踪队友是内置核心动作，不能改、不能删                    │', 'cyan'))
+        print(c('  └──────────────────────────────────────────────────────────┘', 'cyan'))
+        print()
+        print('  ' + c('内置动作（局内每隔约 15 秒轮着做一条）', 'white'))
+        for k, name, desc in FIDGET_BUILTIN:
+            on = fidget_switch(FIDGET_SWITCH_KEYS[k])
+            print('   ' + c(k, 'cyan') + ' ' + pad(name, 8)
+                  + c('开 ' if on else '关 ', 'green' if on else 'dim') + c(desc, 'dim'))
+        print('   ' + c('E', 'cyan') + ' ' + pad('追踪队友', 8)
+              + c('固定开启', 'yellow') + c('自动朝队友走（内置核心，不可修改）', 'dim'))
+        print()
+        print('  ' + c('自定义动作（各自按自己的间隔执行，改完下一轮就生效）', 'white'))
+        if rows:
+            for i, r in enumerate(rows, 1):
+                print('   ' + c('%d.' % i, 'cyan') + '  ' + r)
+        else:
+            print(c('   （还没有自定义动作，按 [2] 可以添加）', 'dim'))
+        print()
+        print('  ' + c('[1]', 'cyan') + ' 开关内置动作   '
+              + c('[2]', 'cyan') + ' 添加   '
+              + c('[3]', 'cyan') + ' 修改   '
+              + c('[4]', 'cyan') + ' 删除   '
+              + c('[5]', 'cyan') + ' 恢复默认   '
+              + c('[6]', 'cyan') + ' 用记事本打开   '
+              + c('[0]', 'cyan') + ' 返回')
+        print()
+        ans = _ask('  请输入序号后按回车（0~6）：').strip()
+        if ans in ('0', ''):
+            hide_cursor(False)
+            _last_action[0] = '已返回主菜单（挂机机制：%s）' % fidget_label()
+            return
+        if ans == '1':
+            k = _ask('  要开关哪个内置动作？输入 A / B / D（回车=取消）：').strip().upper()
+            if k not in FIDGET_SWITCH_KEYS:
+                _last_action[0] = '只支持 A / B / D（追踪队友 E 是核心动作，不能关）'
+                time.sleep(0.9)
+                continue
+            key = FIDGET_SWITCH_KEYS[k]
+            now_on = fidget_switch(key)
+            set_conf_one(key, '0' if now_on else '1')
+            _last_action[0] = '内置动作 %s 已%s（下一串动作起生效）' % (k, '关掉' if now_on else '打开')
+            time.sleep(0.6)
+            continue
+        if ans in ('2', '3'):
+            idx = None
+            if ans == '3':
+                if not rows:
+                    _last_action[0] = '还没有自定义动作可改，用 [2] 添加'
+                    time.sleep(0.8)
+                    continue
+                s = _ask('  输入要修改的序号（回车=取消）：').strip()
+                if not s.isdigit() or not (1 <= int(s) <= len(rows)):
+                    _last_action[0] = '序号不对，已取消'
+                    time.sleep(0.6)
+                    continue
+                idx = int(s) - 1
+            old = rows[idx] if idx is not None else ''
+            old_name = old.split('=>')[0].strip() if '=>' in old else ''
+            nm = _ask('  动作名称（例如 点左键）%s：' % ('，回车=不改' if old_name else '')).strip() or old_name
+            if not nm:
+                _last_action[0] = '名称不能空，已取消'
+                time.sleep(0.6)
+                continue
+            old_spec = old.split('=>', 1)[1].split('@')[0].strip() if '=>' in old else ''
+            spec = _ask('  动作（按:E / 长按:E:2 / 连点:E:3 / 点击:左键:3 / 长按左键:10 / 组合键:Ctrl+E）%s：'
+                        % ('，回车=不改' if old_spec else '')).strip() or old_spec
+            ok, why = fidget_ok(spec)
+            if not ok:
+                _last_action[0] = '动作写法不对：%s（例：连点:左键:3 / 长按:W:2）' % why
+                time.sleep(1.3)
+                continue
+            old_iv = old.rsplit('@', 1)[1].strip() if '@' in old else ''
+            iv = _ask('  每隔多少秒做一次？%s：' % ('[%s]' % old_iv if old_iv else '[20]')).strip() or old_iv or '20'
+            try:
+                iv_f = float(iv)
+                if not (2 <= iv_f <= 3600):
+                    raise ValueError
+            except Exception:
+                _last_action[0] = '间隔要写 2~3600 之间的秒数，已取消'
+                time.sleep(1.1)
+                continue
+            line = '%s => %s @ %g' % (nm, spec, iv_f)
+            if idx is None:
+                rows = [r for r in rows if r.split('=>')[0].strip().lower() != nm.lower()]
+                rows.append(line)
+            else:
+                rows[idx] = line
+            if not write_fidget(rows):
+                _last_action[0] = '写入 挂机动作.txt 失败(文件被占用?)'
+                time.sleep(0.9)
+                continue
+            _last_action[0] = '已保存「%s」：%s，每 %g 秒做一次（下一轮生效，不用重启）' % (nm, spec, iv_f)
+            time.sleep(0.9)
+        elif ans == '4':
+            if not rows:
+                _last_action[0] = '没有自定义动作可删'
+                time.sleep(0.6)
+                continue
+            s = _ask('  输入要删除的序号（回车=取消）：').strip()
+            if not s.isdigit() or not (1 <= int(s) <= len(rows)):
+                _last_action[0] = '序号不对，已取消'
+                time.sleep(0.6)
+                continue
+            gone = rows.pop(int(s) - 1)
+            if not write_fidget(rows):
+                _last_action[0] = '写入 挂机动作.txt 失败(文件被占用?)'
+                time.sleep(0.9)
+                continue
+            _last_action[0] = '已删除「%s」' % gone
+            time.sleep(0.6)
+        elif ans == '5':
+            try:
+                if os.path.exists(FIDGET_FILE):
+                    os.remove(FIDGET_FILE)
+                _last_action[0] = '已恢复默认：只有内置动作（A/B/D 全开 + 追踪队友）'
+            except Exception as e:
+                _last_action[0] = '删除 挂机动作.txt 失败: %r' % (e,)
+            time.sleep(0.6)
+        elif ans == '6':
+            try:
+                if not os.path.exists(FIDGET_FILE):
+                    write_fidget([])
+                os.startfile(FIDGET_FILE)
+                _last_action[0] = '已用记事本打开 挂机动作.txt（改完保存，机器人下一轮自动读）'
+            except Exception as e:
+                _last_action[0] = '打不开文件: %r（路径：%s）' % (e, FIDGET_FILE)
+            time.sleep(0.9)
+
+
 def words_menu():
     """[9] 自动点击词: 添加 / 删除 / 查看"""
     while True:
@@ -1602,7 +1849,7 @@ def hotkey_check(seconds=10):
 _INPUT_EOF = [False]
 
 
-def _ask(prompt='  请输入序号后按回车（1~16）：'):
+def _ask(prompt='  请输入序号后按回车（1~17）：'):
     """行输入: 你打的字会原样显示在屏幕上, 按回车才算数(不会误触)。"""
     try:
         sys.stdout.write(c(prompt, 'bold'))
@@ -1898,6 +2145,9 @@ def main():
             elif ans == '16':
                 actions_menu()
                 continue
+            elif ans == '17':
+                fidget_menu()
+                continue
             elif ans == '13':
                 import webbrowser
                 try:
@@ -1921,7 +2171,7 @@ def main():
                     hotkey_check()
                     _last_action[0] = '已做过热键自检'
                 else:
-                    _last_action[0] = '没有这个选项："%s"（请输入 1~16）' % ans
+                    _last_action[0] = '没有这个选项："%s"（请输入 1~17）' % ans
     except KeyboardInterrupt:
         stop_everything(proc)
         clear()

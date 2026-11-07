@@ -1150,6 +1150,174 @@ def load_action_rules():
     return rules
 
 
+# ══ v1.12.5 挂机机制: 内置串开关 + 自定义动作 ═══════════════════════════
+# 内置反挂机串 A/B/D 可以在启动器 [17] 挂机机制 里关掉;
+# 追踪队友(E, 自动朝队友走)是内置核心, 不能关也不能改。
+# 自定义动作写在 挂机动作.txt: 一行一条  名称 => 动作 @ 间隔秒
+FIDGET_RULES_PATH = data_file('挂机动作.txt')
+FIDGET_RULES_HEADER = [
+    '# 挂机动作(自定义): 一行一条, 格式  名称 => 动作 @ 间隔秒',
+    '# 动作可以写:',
+    '#   按:E            按一次 E',
+    '#   长按:E:2         按住 E 两秒',
+    '#   连点:E:3         按 E 三次(每次间隔 0.25 秒)',
+    '#   连点:E:3:0.4     按 E 三次, 每次隔 0.4 秒',
+    '#   点击             点一下鼠标左键(同 点击:左键)',
+    '#   点击:左键:3      连点左键三次',
+    '#   长按左键:10      按住鼠标左键 10 秒',
+    '#   组合键:Ctrl+E    依次按下再松开',
+    '# 间隔不写默认 20 秒(最少 2 秒)',
+    '# 例: 点左键 => 点击:左键:3 @ 6',
+    '# 例: 按住W  => 长按:W:2 @ 15',
+]
+_FIDGET_RULES_CACHE = {'mtime': None, 'rules': None}
+FIDGET_MOUSE_WORDS = {'左键': 'left', '左': 'left', 'left': 'left', 'lmb': 'left',
+                      '右键': 'right', '右': 'right', 'right': 'right', 'rmb': 'right'}
+
+
+def _fnum(txt, default, lo=0.0, hi=60.0):
+    try:
+        v = float(str(txt).strip())
+    except Exception:
+        return default
+    return max(lo, min(hi, v))
+
+
+def _fint(txt, default, lo=1, hi=50):
+    try:
+        v = int(float(str(txt).strip()))
+    except Exception:
+        return default
+    return max(lo, min(hi, v))
+
+
+def _parse_fidget_action(spec):
+    """解析自定义挂机动作; 返回 dict 或 None"""
+    t = (spec or '').strip().lower().replace(' ', '').replace('＋', '+')
+    if not t:
+        return None
+    verb, _, rest = t.partition(':')
+    parts = [p for p in rest.split(':') if p] if rest else []
+
+    def key_of(s):
+        if not s or s in FIDGET_MOUSE_WORDS:
+            return None
+        return _parse_key(s, None)
+
+    if verb in ('按', '按键', '点一下'):
+        vk = key_of(parts[0] if parts else '')
+        if not vk:
+            return None
+        return {'kind': 'key', 'vk': vk, 'count': 1, 'gap': 0.25, 'hold': 0.0,
+                'label': '按 %s' % vk_label(vk)}
+    if verb in ('长按左键', '长按右键', '按住左键', '按住右键'):
+        btn = 'left' if '左' in verb else 'right'
+        hold = _fnum(parts[0] if parts else '', 3.0, 0.1, 30.0)
+        return {'kind': 'mouse', 'button': btn, 'count': 1, 'gap': 0.0, 'hold': hold,
+                'label': '长按%s %.1f 秒' % ('左键' if btn == 'left' else '右键', hold)}
+    if verb in ('长按', '按住', 'hold'):
+        if not parts:
+            return None
+        hold = _fnum(parts[1] if len(parts) > 1 else '', 3.0, 0.1, 30.0)
+        vk = key_of(parts[0])
+        if vk:
+            return {'kind': 'key', 'vk': vk, 'count': 1, 'gap': 0.0, 'hold': hold,
+                    'label': '长按 %s %.1f 秒' % (vk_label(vk), hold)}
+        btn = FIDGET_MOUSE_WORDS.get(parts[0])
+        if btn:
+            return {'kind': 'mouse', 'button': btn, 'count': 1, 'gap': 0.0, 'hold': hold,
+                    'label': '长按%s %.1f 秒' % ('左键' if btn == 'left' else '右键', hold)}
+        return None
+    if verb in ('连点', '连续点击', '多点'):
+        if not parts:
+            return None
+        vk = key_of(parts[0])
+        btn = None if vk else FIDGET_MOUSE_WORDS.get(parts[0])
+        if not vk and not btn:
+            return None
+        count = _fint(parts[1] if len(parts) > 1 else '', 3, 1, 50)
+        gap = _fnum(parts[2] if len(parts) > 2 else '', 0.25, 0.05, 5.0)
+        if vk:
+            return {'kind': 'key', 'vk': vk, 'count': count, 'gap': gap, 'hold': 0.0,
+                    'label': '连点 %s ×%d' % (vk_label(vk), count)}
+        return {'kind': 'mouse', 'button': btn, 'count': count, 'gap': gap, 'hold': 0.0,
+                'label': '连点%s ×%d' % ('左键' if btn == 'left' else '右键', count)}
+    if verb in ('点击', '单击', 'click'):
+        target = parts[0] if parts else '左键'
+        btn = FIDGET_MOUSE_WORDS.get(target)
+        if not btn:
+            return None
+        count = _fint(parts[1] if len(parts) > 1 else '', 1, 1, 50)
+        gap = _fnum(parts[2] if len(parts) > 2 else '', 0.25, 0.05, 5.0)
+        return {'kind': 'mouse', 'button': btn, 'count': count, 'gap': gap, 'hold': 0.0,
+                'label': '点击%s ×%d' % ('左键' if btn == 'left' else '右键', count)}
+    if verb in ('组合键', '组合'):
+        vks = []
+        for p in [x for x in rest.split('+') if x][:4]:
+            vk = _parse_key(p, None)
+            if not vk:
+                return None
+            vks.append(vk)
+        if not vks:
+            return None
+        return {'kind': 'combo', 'vks': tuple(vks), 'count': 1, 'gap': 0.0, 'hold': 0.0,
+                'label': '组合键 %s' % '+'.join(vk_label(v) for v in vks)}
+    return None
+
+
+def load_fidget_rules():
+    """读 挂机动作.txt(改完立刻生效, 按 mtime 缓存); 没有就返回 []"""
+    try:
+        mt = os.path.getmtime(FIDGET_RULES_PATH)
+    except Exception:
+        mt = None
+    if _FIDGET_RULES_CACHE['mtime'] == mt and _FIDGET_RULES_CACHE['rules'] is not None:
+        return _FIDGET_RULES_CACHE['rules']
+    rules = []
+    if mt is not None:
+        try:
+            for ln in io.open(FIDGET_RULES_PATH, encoding='utf-8-sig',
+                              errors='replace').read().splitlines():
+                t = ln.strip()
+                if not t or t.startswith('#'):
+                    continue
+                body, interval = t, 20.0
+                if '@' in t:
+                    body, iv = t.rsplit('@', 1)
+                    interval = _fnum(iv, 20.0, 2.0, 3600.0)
+                name, spec = body.split('=>', 1) if '=>' in body else ('动作', body)
+                act = _parse_fidget_action(spec)
+                if act is None:
+                    log('WARN 挂机动作.txt 有一行看不懂, 已跳过: %s' % t[:60])
+                    continue
+                act['name'] = (name.strip() or '动作')[:20]
+                act['interval'] = interval
+                rules.append(act)
+        except Exception as e:
+            log('WARN 读 挂机动作.txt 失败: %s' % e)
+            rules = []
+    _FIDGET_RULES_CACHE['mtime'], _FIDGET_RULES_CACHE['rules'] = mt, rules
+    return rules
+
+
+def load_fidget_switches():
+    """内置反挂机串 A/B/D 的开关(设置.txt: fidget_a / fidget_b / fidget_d = 1/0)"""
+    sw = {'a': True, 'b': True, 'd': True}
+    try:
+        for ln in io.open(data_file('设置.txt'), encoding='utf-8-sig', errors='replace'):
+            ln = ln.strip()
+            if '=' not in ln or ln.startswith('#'):
+                continue
+            k, v = ln.split('=', 1)
+            k = k.strip().lower()
+            if k in ('fidget_a', 'fidget_b', 'fidget_d'):
+                sw[k[-1]] = v.strip() not in ('0', 'off', 'false', '否', '关')
+    except Exception:
+        pass
+    return sw
+# ══ v1.12.5 挂机机制 结束 ═══════════════════════════════════════════════
+
+
 BAD_CLICK = ('装备', '精灵', '仓库', '商城', '通行证', '任务', '生涯', '赛事',
              '商店', '充值', '购买', '背包', '设置', '好友', '工会', '社交')
 
@@ -1696,6 +1864,7 @@ class Bot:
         self.action_rules = load_action_rules()   # v1.12.4: 关键词 -> 动作(可自定义)
         self.action_cd = {}                        # 每条规则自己的冷却
         self.action_count = 0
+        self.custom_cd = {}                        # v1.12.5: 自定义挂机动作各自的计时
         self.action_hold_until = 0.0               # 救援/召回后要停 15 秒
         self._urgent_next = 0.0                    # 动作串里"快速扫一眼"的节流
         self.fidget_scan = False                   # 正在做反挂机动作串(允许被交互键打断)
@@ -1877,15 +2046,12 @@ class Bot:
         n = self.fidget_count
         parts = []
         t_start = time.time()          # 节奏以「开始时刻」为准: 每 20 秒一串
-        r = random.random()
-        if r < 0.20:
-            kind = 'A'          # 综合串(移动少一点)
-        elif r < 0.28:
-            kind = 'B'          # 冲刺+跳
-        elif r < 0.46:
-            kind = 'D'          # F 互动 + 长按左键 10 秒
-        else:
-            kind = 'E'          # 自动朝队友走(高频)
+        # v1.12.5: A/B/D 可以在 [17] 挂机机制 里关掉(设置.txt 的 fidget_a/b/d);
+        # 追踪队友(E)是内置核心, 恒可选、不可关
+        _sw = load_fidget_switches()
+        _w = {'A': 20, 'B': 8, 'D': 18, 'E': 54}
+        _kinds = [k for k in ('A', 'B', 'D', 'E') if k == 'E' or _sw.get(k.lower(), True)]
+        kind = random.choices(_kinds, weights=[_w[k] for k in _kinds])[0]
         if self.dry:
             self.next_fidget = t_start + FIDGET_INTERVAL
             return '[DRY] 系列#%d(%s)' % (n, kind)
@@ -3305,6 +3471,85 @@ class Bot:
                 log('      ' + _ln[:160])
             return None
 
+    def _fidget_mouse(self, r):
+        """鼠标动作: 长按(hold>0) 或 连点(count 次, 每次隔 gap 秒)"""
+        down = 0x0002 if r['button'] == 'left' else 0x0008
+        up = 0x0004 if r['button'] == 'left' else 0x0010
+        if r['hold'] > 0:
+            user32.mouse_event(down, 0, 0, 0, None)
+            try:
+                self._nap(r['hold'])
+            finally:
+                user32.mouse_event(up, 0, 0, 0, None)
+            return True
+        for i in range(max(1, r['count'])):
+            if self.stop_requested:
+                return False
+            user32.mouse_event(down, 0, 0, 0, None)
+            user32.mouse_event(up, 0, 0, 0, None)
+            if i + 1 < r['count'] and r['gap'] > 0:
+                if not self._nap(r['gap']):
+                    return False
+        return True
+
+    def _fidget_do(self, r):
+        """执行一条自定义挂机动作"""
+        if r['kind'] == 'mouse':
+            return self._fidget_mouse(r)
+        if r['kind'] == 'combo':
+            return self._send_combo(r['vks'])
+        vk = r['vk']
+        if r['hold'] > 0:
+            key_down_scan(vk)
+            try:
+                self._nap(r['hold'])
+            finally:
+                key_up_scan(vk)
+            return True
+        for i in range(max(1, r['count'])):
+            if self.stop_requested:
+                return False
+            press_scan(vk)
+            if i + 1 < r['count'] and r['gap'] > 0:
+                if not self._nap(r['gap']):
+                    return False
+        return True
+
+    def maybe_custom_fidget(self, lines, state, img=None):
+        """v1.12.5: 用户自定义挂机动作, 每条各自按「间隔」计时(不等 15 秒那一串)"""
+        if time.time() < self.action_hold_until:
+            return None                    # 救援/召回后的静默期
+        rules = load_fidget_rules()
+        if not rules:
+            return None
+        ok, _why = self.alive_for_fidget(lines, img, state)
+        if not ok:
+            return None
+        now = time.time()
+        for r in rules:
+            key = (r['name'], r['label'], r['interval'])
+            if now < self.custom_cd.get(key, 0.0):
+                continue
+            self.custom_cd[key] = now + r['interval']
+            if self.dry:
+                return '[DRY] 挂机动作 「%s」→ %s (每 %.0f 秒)' % (r['name'], r['label'], r['interval'])
+            if not self.game_is_foreground():
+                return None
+            self.fidget_scan = True        # 做自定义动作时也能被交互关键词打断
+            self._interrupt_fidget = False
+            try:
+                self._fidget_do(r)
+            except _FidgetInterrupt:
+                return '挂机动作 「%s」被交互键打断' % r['name']
+            except Exception as e:
+                log('    WARN 自定义挂机动作出错(%s): %r' % (r['name'], e))
+                return None
+            finally:
+                self.fidget_scan = False
+                self._interrupt_fidget = False
+            return '挂机动作 「%s」→ %s (每 %.0f 秒)' % (r['name'], r['label'], r['interval'])
+        return None
+
     def maybe_shot(self, img, state):
         if not self.save_shots:
             return
@@ -3531,6 +3776,9 @@ class Bot:
         fid = self.maybe_fidget(lines, state, img)
         if fid:
             log('    FIDGET %s' % fid)
+        cf = self.maybe_custom_fidget(lines, state, img)
+        if cf:
+            log('    FIDGET %s' % cf)
         self.last_state = state
         return state
 
