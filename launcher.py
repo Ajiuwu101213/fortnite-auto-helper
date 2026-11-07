@@ -59,8 +59,12 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.11.7'
-REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'   # 项目主页(更新地址)
+VERSION = 'v1.12.0'
+REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
+try:
+    import updater
+except Exception:
+    updater = None   # 项目主页(更新地址)
 W = 64          # 界面宽度(显示字符数)
 
 STATE_CN = {
@@ -1024,6 +1028,7 @@ def render(proc):
           + '  ' + c('[11]', 'cyan') + ' 热键自检'
           + '  ' + c('[12]', 'cyan') + ' 退出策略:' + squad_mode_label())
     print('  ' + c('[13]', 'cyan') + ' 打开项目主页（看有没有新版本）')
+    print('  ' + c('[14]', 'cyan') + ' 检查更新（自动下载到「下载」文件夹）')
     print()
     print()
 
@@ -1396,7 +1401,7 @@ def hotkey_check(seconds=10):
 _INPUT_EOF = [False]
 
 
-def _ask(prompt='  请输入序号后按回车（1~13）：'):
+def _ask(prompt='  请输入序号后按回车（1~14）：'):
     """行输入: 你打的字会原样显示在屏幕上, 按回车才算数(不会误触)。"""
     try:
         sys.stdout.write(c(prompt, 'bold'))
@@ -1407,6 +1412,111 @@ def _ask(prompt='  请输入序号后按回车（1~13）：'):
         return ''
     except KeyboardInterrupt:
         raise
+
+
+# ---------------------------------------------------------------- 检查更新
+def _conf_flag(name, default=1):
+    try:
+        v = (read_conf() or {}).get(name)
+        return int(v) if v not in (None, '') else default
+    except Exception:
+        return default
+
+
+def _fmt_mb(n):
+    try:
+        return '%.1f MB' % (float(n) / 1048576.0)
+    except Exception:
+        return '?'
+
+
+def auto_update_check(verbose=False):
+    """启动时查一下 GitHub 最新 Release，有新版本就提示下载。
+    成功返回提示字符串，失败/跳过返回 None（绝不阻塞启动超过 ~8 秒）。"""
+    if updater is None:
+        return None
+    if _conf_flag('auto_update', 1) != 1:
+        return None
+    try:
+        info = updater.latest(6)
+    except Exception as e:
+        if verbose:
+            return '检查更新失败（网络/接口）：%s' % str(e)[:60]
+        return None
+    if not info or not info.get('version'):
+        return None
+    if not updater.is_newer(info['version'], VERSION):
+        if verbose:
+            return '已经是最新版本（%s）' % VERSION
+        return None
+
+    # 有新版本 → 提示
+    print()
+    print(c('  ╭' + '─' * 62 + '╮', 'yellow'))
+    print(c('  │ ' + pad('发现新版本 ' + info['version'], 60) + ' │', 'yellow'))
+    print(c('  ╰' + '─' * 62 + '╯', 'yellow'))
+    print('  ' + c('当前版本 %s  →  最新版本 %s' % (VERSION, info['version']), 'white'))
+    if info.get('asset'):
+        print('  ' + c('安装包：%s（%s）' % (info['asset'], _fmt_mb(info.get('size'))), 'dim'))
+    print('  ' + c('项目主页：' + (info.get('page') or REPO_URL), 'dim'))
+    ans = _ask('  输入 y 回车 = 下载到「下载」文件夹并打开；直接回车 = 先不更新：').strip().lower()
+    if ans not in ('y', 'yes', '是', '1'):
+        _last_action[0] = '发现新版本 %s，已跳过（[14] 可再来一次）' % info['version']
+        return None
+    if not info.get('url'):
+        return '新版本没有可下载的安装包，请手动去主页下载'
+    return _do_download(info)
+
+
+def _do_download(info):
+    """带进度条下载 + 打开下载文件夹。返回提示字符串。"""
+    total = int(info.get('size') or 0)
+    last = [0]
+
+    def cb(got, tot):
+        tot = tot or total
+        if not tot:
+            return
+        pct = int(got * 100 / tot)
+        if pct == last[0]:
+            return
+        last[0] = pct
+        bars = int(pct * 30 / 100)
+        sys.stdout.write('\r  ' + c('下载中 [', 'dim') + '█' * bars + '░' * (30 - bars)
+                         + c('] %3d%%  %s / %s' % (pct, _fmt_mb(got), _fmt_mb(tot)), 'dim'))
+        sys.stdout.flush()
+
+    print()
+    try:
+        path = updater.download(info['url'], info.get('asset') or 'fortnite-auto-helper_new.zip', progress=cb)
+    except Exception as e:
+        print()
+        return '下载失败：%s（可去主页手动下载：%s）' % (str(e)[:60], info.get('page') or REPO_URL)
+    print()
+    ok = updater.verify_zip(path)
+    d = os.path.dirname(path)
+    try:
+        if os.name == 'nt':
+            os.startfile(d)          # 自动打开「下载」文件夹
+    except Exception:
+        pass
+    _last_action[0] = ('已下载 %s（%s）→ 已打开下载文件夹' % (os.path.basename(path), '校验通过' if ok else '但校验没通过，请谨慎'))
+    if not ok:
+        return '下载完成但校验没通过：%s（建议重新下载或手动去主页下载）' % path
+    return ('已下载到：%s\n  已帮你打开「下载」文件夹；退出本程序后解压覆盖即可（设置/按键不会丢）。'
+            % path)
+
+
+def update_menu():
+    """菜单 [14]：手动检查更新。"""
+    print()
+    print(c('  正在检查 GitHub 最新版本…', 'dim'))
+    msg = auto_update_check(verbose=True)
+    print()
+    if msg:
+        print('  ' + c(msg, 'green'))
+    print('  ' + c('项目主页：' + REPO_URL, 'dim'))
+    time.sleep(1.0)
 
 
 def main():
@@ -1440,6 +1550,10 @@ def main():
         hide_cursor(True)
         play_intro()
         hide_cursor(False)
+    if '--no-update-check' not in sys.argv:
+        _um = auto_update_check()
+        if _um:
+            print('  ' + c(_um, 'green'))
     proc = None
     _proc_holder[0] = proc
     try:
@@ -1575,6 +1689,8 @@ def main():
                 hide_cursor(False)
                 _last_action[0] = '开场动画播完了（按 8 可以再看一遍）'
                 time.sleep(0.4)
+            elif ans == '14':
+                update_menu()
             elif ans == '13':
                 import webbrowser
                 try:
