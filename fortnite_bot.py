@@ -1060,6 +1060,19 @@ def find_user_word(lines):
     return best
 
 
+def load_user_words_ingame():
+    """点击词要不要在局内也生效: 设置.txt 里 user_words_ingame=1 (默认 0/关)"""
+    try:
+        for ln in io.open(data_file('设置.txt'), encoding='utf-8-sig', errors='replace'):
+            t = ln.strip()
+            if t.startswith('user_words_ingame') and '=' in t:
+                v = t.split('=', 1)[1].strip().lower()
+                return v not in ('', '0', 'off', 'false', 'no', '否', '关')
+    except Exception:
+        pass
+    return False
+
+
 # ==== 交互关键词优先 (v1.12.4) ================================================
 # 屏幕上出现这些字眼 -> 立刻按一次交互键(默认 E), 优先级高于反挂机(能打断正在做的动作);
 # 按完后等 5 秒再识别, 还在就再按一次; 「救援/召回」按完停 15 秒, 期间不抢任何动作。
@@ -1108,6 +1121,20 @@ def _parse_action_spec(spec):
         if vks:
             return ('combo', vks, '组合键 %s' % '+'.join(vk_label(v) for v in vks))
         return None
+    # v1.12.15: 少打几个字也认 —— 「E」「按E」「按下E」「长按E」「按住E」「左键」「单击」
+    if t in ('左键', '单击', '点左键', '鼠标左键', 'left', 'lmb'):
+        return ('click', None, '点击')
+    for _pre in ('长按:', '按住:', '按下:', '按:'):
+        if t.startswith(_pre):
+            _vk = _parse_key(t.split(':', 1)[1], None)
+            return (('key', _vk, '按键 %s' % vk_label(_vk)) if _vk else None)
+    for _pre in ('长按', '按住', '按下', '按一下', '按'):
+        if t.startswith(_pre) and len(t) > len(_pre):
+            _vk = _parse_key(t[len(_pre):], None)
+            return (('key', _vk, '按键 %s' % vk_label(_vk)) if _vk else None)
+    _vk = _parse_key(t, None)
+    if _vk:
+        return ('key', _vk, '按键 %s' % vk_label(_vk))
     return None
 
 
@@ -3904,6 +3931,17 @@ class Bot:
             # v1.12.6: 只拦局内 —— 大厅/结算/弹窗该点的还要点, 别被静默拖 15 秒
             self.last_state = state
             return state
+        # v1.12.15: 点击词也可以选择在局内生效(设置.txt user_words_ingame=1)
+        if state == 'INGAME' and not self.spectating and load_user_words_ingame():
+            _uw = find_user_word(lines)
+            if _uw is not None and self.cd_ok('user_word', 1.5):
+                _ux, _uy = center(_uw)
+                if self.dry:
+                    log('    [DRY] 点自定义词「%s」@%d,%d' % (_uw['text'], _ux, _uy))
+                elif self.game_is_foreground():
+                    click(_ux, _uy)
+                    self.cd_mark('user_word')
+                    log('    click_user 「%s」@%d,%d' % (_uw['text'], _ux, _uy))
         act = self.act(state, target, lines, img)
         if act:
             log('    ACTION %s' % act)
@@ -4286,9 +4324,13 @@ def main():
     log('行为警告保护: 识别到「行为警告/你已被警告/理由为最近以下行为」-> 返回大厅, 彻底停止(不再匹配)')
     try:
         _rules = load_action_rules()
+        _file_rules = [r for r in _rules if r.get('src') == '文件']
         log('交互关键词: %s | 交互键=%s' % (
             '; '.join('%s→%s' % ('/'.join(r['words']), r['label']) for r in _rules),
             vk_label(key_vk('交互'))))
+        log('识别动作: 自定义 %d 条 + 内置 %d 词; 点击词 %d 个(局内%s)' % (
+            len(_file_rules), len(INTERACT_WORDS), len(load_user_words()),
+            '也生效' if load_user_words_ingame() else '不生效'))
     except Exception:
         pass
     ap = argparse.ArgumentParser()

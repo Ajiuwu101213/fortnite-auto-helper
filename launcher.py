@@ -59,7 +59,7 @@ DEFAULT_NAME = 'YOUR_GAME_NAME'
 
 AUTHOR_NAME = '阿舸AG'
 AUTHOR_QQ = '2395019665'
-VERSION = 'v1.12.14'
+VERSION = 'v1.12.15'
 REPO_URL = 'https://github.com/Ajiuwu101213/fortnite-auto-helper'
 try:
     import updater
@@ -1405,6 +1405,7 @@ ACTION_HEADER = [
     '# 动作可以写: 点击 / 交互 / 按键:E / 组合键:Ctrl+E',
     '# 例: 领取 => 点击',
     '# 例: 召回 => 按键:G',
+    '# v1.12.15: 动作也可以直接写 E / 按E / 长按E / 左键 / 单击(少打几个字)',
     '# 一行只写词(没写 =>)时, 等同「点击」; # 开头是注释',
 ]
 ACTION_KINDS = ('点击', '交互')
@@ -1457,7 +1458,16 @@ def action_ok(txt):
     if t.startswith('组合键:') or t.startswith('组合:'):
         parts = [p for p in t.split(':', 1)[1].split('+') if p][:4]
         return bool(parts) and all(parse_key_text(p) for p in parts)
-    return False
+    # v1.12.15: 少打几个字也认 —— 「E」「按E」「按下E」「长按E」「按住E」「左键」「单击」
+    if t in ('左键', '单击', '点左键', '鼠标左键', 'left', 'lmb'):
+        return True
+    for _pre in ('长按:', '按住:', '按下:', '按:'):
+        if t.startswith(_pre):
+            return bool(parse_key_text(t.split(':', 1)[1]))
+    for _pre in ('长按', '按住', '按下', '按一下', '按'):
+        if t.startswith(_pre) and len(t) > len(_pre):
+            return bool(parse_key_text(t[len(_pre):]))
+    return bool(parse_key_text(t))
 
 
 def _action_words(row):
@@ -1505,10 +1515,10 @@ def actions_menu():
                 _last_action[0] = '没输入内容，已取消'
                 time.sleep(0.5)
                 continue
-            a = _ask('  输入动作（点击 / 交互 / 按键:E / 组合键:Ctrl+E，直接回车=交互）：').strip() or '交互'
+            a = _ask('  输入动作（点击 / 交互 / 按键:E / 组合键:Ctrl+E；也可以直接写 E / 按E，回车=交互）：').strip() or '交互'
             if not action_ok(a):
-                _last_action[0] = '动作写法看不懂："%s"（例：点击 / 交互 / 按键:E / 组合键:Ctrl+E）' % a
-                time.sleep(1.0)
+                _last_action[0] = '动作写法看不懂："%s"（例：点击 / 交互 / 按键:E / E / 按E / 组合键:Ctrl+E）' % a
+                time.sleep(1.6)
                 continue
             new_words = [x.strip() for x in w.replace('，', ',').replace('、', ',')
                          .replace('/', ',').split(',') if x.strip()]
@@ -1923,6 +1933,7 @@ def words_menu():
         print(c('  ┌──────────────────────────────────────────────────────┐', 'cyan'))
         print(c('  │  自动点击词：游戏里出现这些字，就点它所在的位置       │', 'cyan'))
         print(c('  └──────────────────────────────────────────────────────┘', 'cyan'))
+        print(c('  大厅/结算/加载/弹窗 默认生效；局内要不要点，用下面的 [3] 切换', 'dim'))
         print()
         if words:
             for i, w in enumerate(words, 1):
@@ -1930,11 +1941,16 @@ def words_menu():
         else:
             print(c('  （现在是空的。比如可以添加：领取 / 跳过 / 开始）', 'dim'))
         print()
+        _ig = str(read_conf().get('user_words_ingame', '0') or '0').strip().lower() not in (
+            '', '0', 'off', 'false', 'no', '否', '关')
         print('  ' + c('[1]', 'cyan') + ' 添加一个字/一句话      '
               + c('[2]', 'cyan') + ' 删除一个      '
               + c('[0]', 'cyan') + ' 返回')
+        print('  ' + c('[3]', 'cyan') + ' 局内也生效: '
+              + c('开' if _ig else '关', 'white')
+              + c('   (默认关: 只在非对局画面点, 免得局内乱点)', 'dim'))
         print()
-        ans = _ask('  请输入序号后按回车（0~2）：').strip()
+        ans = _ask('  请输入序号后按回车（0~3）：').strip()
         if ans in ('0', ''):
             hide_cursor(False)
             _last_action[0] = '已返回主菜单（自动点击词：%d 个）' % len(words)
@@ -1980,6 +1996,14 @@ def words_menu():
                 time.sleep(0.8)
                 continue
             _last_action[0] = '已删除「%s」' % gone
+            time.sleep(0.6)
+        elif ans == '3':
+            _cur = str(read_conf().get('user_words_ingame', '0') or '0').strip().lower() not in (
+                '', '0', 'off', 'false', 'no', '否', '关')
+            save_conf_or_report(
+                'user_words_ingame', '0' if _cur else '1',
+                '点击词：只在非对局画面(大厅/结算/加载/弹窗)生效' if _cur
+                else '点击词：局内也生效(看到字就点)')
             time.sleep(0.6)
 
 
